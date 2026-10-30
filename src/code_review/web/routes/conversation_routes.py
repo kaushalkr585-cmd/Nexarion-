@@ -1562,49 +1562,32 @@ def delete_conversation(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[UserRecord | None, Depends(get_current_user_optional)],
 ) -> None:
-    query = db.query(ConversationRecord).filter(ConversationRecord.id == conversation_id)
+    user_id = user.id if user else None
+    statement = delete(ConversationRecord).where(ConversationRecord.id == conversation_id)
     if user:
-        query = query.filter(ConversationRecord.user_id == user.id)
+        statement = statement.where(ConversationRecord.user_id == user_id)
     else:
-        query = query.filter(ConversationRecord.user_id.is_(None))
+        statement = statement.where(ConversationRecord.user_id.is_(None))
 
-    conversation = query.first()
-    if not conversation:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Conversation not found",
-        )
-
-    message_ids = select(MessageRecord.id).where(
-        MessageRecord.conversation_id == conversation_id
-    )
-    attachment_filter = or_(
-        AttachmentRecord.conversation_id == conversation_id,
-        AttachmentRecord.message_id.in_(message_ids),
-    )
-    attachment_ids = select(AttachmentRecord.id).where(attachment_filter)
-
-    db.execute(
-        delete(DocumentChunkRecord).where(
-            DocumentChunkRecord.attachment_id.in_(attachment_ids)
-        )
-    )
-    db.execute(
-        delete(ConversationMemoryRecord).where(
-            or_(
-                ConversationMemoryRecord.conversation_id == conversation_id,
-                ConversationMemoryRecord.source_message_id.in_(message_ids),
+    try:
+        result = db.execute(statement)
+        if result.rowcount == 0:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Conversation not found",
             )
-        )
-    )
-    db.execute(delete(AttachmentRecord).where(attachment_filter))
-    db.execute(delete(MessageRecord).where(MessageRecord.conversation_id == conversation_id))
-    db.execute(delete(ConversationRecord).where(ConversationRecord.id == conversation_id))
-    db.commit()
+        db.commit()
+    except HTTPException:
+        raise
+    except Exception:
+        db.rollback()
+        raise
+
     logger.info(
-        "Deleted conversation %s, memories, and associated attachments for user %s",
+        "Deleted conversation %s and its related records for user %s",
         conversation_id,
-        user.id if user else "guest",
+        user_id or "guest",
     )
 
 
