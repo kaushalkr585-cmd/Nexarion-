@@ -675,7 +675,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
         >
           {messages.length === 0 && !isSending ? (
             <div className="h-full flex flex-col items-center justify-center text-center max-w-xl mx-auto py-12 px-4 animate-fade-in">
-              <div className="w-12 h-12 shrink-0 rounded-2xl bg-white/5 border border-white/15 flex items-center justify-center mb-6 shadow-lg shadow-black/40">
+              <div className="w-12 h-12 shrink-0 rounded-2xl bg-white/5 border border-white/15 flex items-center justify-center mt-3 md:mt-0 mb-6 shadow-lg shadow-black/40">
                 <ChatIcon className="w-6 h-6 text-white" />
               </div>
 
