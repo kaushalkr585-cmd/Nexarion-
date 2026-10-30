@@ -1970,12 +1970,25 @@ export const App: React.FC = () => {
         onAttachDiff={(diffText, title) => {
           navigateTo("chat", undefined);
           setActiveConversation(null);
+          const attachmentName =
+            title.replace(/[^a-z0-9_-]+/gi, "-").replace(/^-|-$/g, "").slice(0, 100) ||
+            "pull-request";
+          const diffAttachment: Attachment = {
+            id: `inline-diff-${Date.now()}`,
+            filename: `${attachmentName}.diff`,
+            file_type: "diff",
+            mime_type: "text/x-diff",
+            file_size: new Blob([diffText]).size,
+            content: diffText,
+            status: "ready",
+            created_at: new Date().toISOString(),
+          };
           void handleSendMessage(
             `Analyze this pull request: ${title}`,
             diffText,
             undefined,
             undefined,
-            undefined,
+            [diffAttachment],
             true
           );
         }}

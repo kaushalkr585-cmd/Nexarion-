@@ -75,6 +75,31 @@ def _to_detail_response(conversation: ConversationRecord) -> ConversationDetailR
     )
 
 
+def _save_diff_attachment(
+    conversation: ConversationRecord,
+    message: MessageRecord,
+    diff_context: str | None,
+    user_id: str | None,
+) -> None:
+    if not diff_context:
+        return
+    diff_bytes = diff_context.encode("utf-8")
+    attachment = AttachmentRecord(
+        conversation=conversation,
+        message_id=message.id,
+        user_id=user_id,
+        filename="pull-request.diff",
+        file_type="diff",
+        mime_type="text/x-diff",
+        file_size=len(diff_bytes),
+        extracted_text=diff_context,
+        file_data=diff_bytes,
+        page_count=1,
+        chunk_count=0,
+    )
+    message.attachments.append(attachment)
+
+
 def _build_system_prompt(
     diff_context: str | None = None,
     document_context: str | None = None,
@@ -174,6 +199,7 @@ def _resolve_document_context(
     user_id: str | None,
     db: Session,
     user_msg: MessageRecord | None = None,
+    diff_context_provided: bool = False,
 ) -> tuple[str | None, list[AttachmentRecord]]:
     active_attachments: list[AttachmentRecord] = []
 
@@ -212,6 +238,12 @@ def _resolve_document_context(
         active_attachments = matched
     elif conversation.attachments:
         active_attachments = list(conversation.attachments)
+        if diff_context_provided:
+            active_attachments = [
+                att
+                for att in active_attachments
+                if not (att.file_type == "diff" and att.filename == "pull-request.diff")
+            ]
 
     if not active_attachments:
         return None, []
@@ -563,6 +595,12 @@ def create_conversation(
         )
         db.add(user_msg)
         db.flush()
+        _save_diff_attachment(
+            conversation,
+            user_msg,
+            payload.diff_context,
+            user.id if user else None,
+        )
 
         try:
             ConversationMemoryManager.index_message(
@@ -578,6 +616,7 @@ def create_conversation(
             user_id=user.id if user else None,
             db=db,
             user_msg=user_msg,
+            diff_context_provided=bool(payload.diff_context),
         )
 
         memory_context = _resolve_memory_context(
@@ -710,6 +749,12 @@ def send_message(
     )
     db.add(user_msg)
     db.flush()
+    _save_diff_attachment(
+        conversation,
+        user_msg,
+        payload.diff_context,
+        user.id if user else None,
+    )
 
     try:
         ConversationMemoryManager.index_message(db, user_msg, user_id=user.id if user else None)
@@ -723,6 +768,7 @@ def send_message(
         user_id=user.id if user else None,
         db=db,
         user_msg=user_msg,
+        diff_context_provided=bool(payload.diff_context),
     )
 
     memory_context = _resolve_memory_context(
@@ -1112,6 +1158,12 @@ def send_message_stream(
     )
     db.add(user_msg)
     db.flush()
+    _save_diff_attachment(
+        conversation,
+        user_msg,
+        payload.diff_context,
+        user.id if user else None,
+    )
 
     try:
         ConversationMemoryManager.index_message(db, user_msg, user_id=user.id if user else None)
@@ -1125,6 +1177,7 @@ def send_message_stream(
         user_id=user.id if user else None,
         db=db,
         user_msg=user_msg,
+        diff_context_provided=bool(payload.diff_context),
     )
 
     memory_context = _resolve_memory_context(
@@ -1181,6 +1234,12 @@ def create_conversation_stream(
         )
         db.add(user_msg)
         db.flush()
+        _save_diff_attachment(
+            conversation,
+            user_msg,
+            payload.diff_context,
+            user.id if user else None,
+        )
 
         try:
             ConversationMemoryManager.index_message(
@@ -1196,6 +1255,7 @@ def create_conversation_stream(
             user_id=user.id if user else None,
             db=db,
             user_msg=user_msg,
+            diff_context_provided=bool(payload.diff_context),
         )
 
     db.commit()
