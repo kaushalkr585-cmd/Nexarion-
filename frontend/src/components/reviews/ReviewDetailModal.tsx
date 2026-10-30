@@ -5,12 +5,14 @@ import { CloseIcon, SecurityIcon } from "../icons/Icons";
 interface ReviewDetailModalProps {
   review: Review | null;
   isOpen: boolean;
+  isLoadingDetails?: boolean;
   onClose: () => void;
 }
 
 export const ReviewDetailModal: React.FC<ReviewDetailModalProps> = ({
   review,
   isOpen,
+  isLoadingDetails = false,
   onClose,
 }) => {
   const [activeFilter, setActiveFilter] = useState<string>("ALL");
@@ -95,10 +97,30 @@ export const ReviewDetailModal: React.FC<ReviewDetailModalProps> = ({
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {filteredFindings.length === 0 ? (
-            <div className="py-12 text-center text-neutral-500 text-xs font-mono">
-              No findings match the selected filter.
+          {isLoadingDetails && (
+            <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs text-neutral-300">
+              <div className="w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin flex-shrink-0" />
+              Loading diff and agent findings…
             </div>
+          )}
+
+          {review.diff_content && (
+            <details className="rounded-xl bg-black/40 border border-white/10">
+              <summary className="cursor-pointer px-4 py-3 text-xs font-mono text-neutral-200 hover:text-white">
+                Inspect reviewed diff ({review.diff_content.split("\n").length} lines)
+              </summary>
+              <pre className="max-h-80 overflow-auto border-t border-white/10 p-4 text-[11px] leading-relaxed text-neutral-300 whitespace-pre-wrap break-all">
+                {review.diff_content}
+              </pre>
+            </details>
+          )}
+
+          {filteredFindings.length === 0 ? (
+            isLoadingDetails ? null : (
+              <div className="py-12 text-center text-neutral-500 text-xs font-mono">
+                No findings match the selected filter.
+              </div>
+            )
           ) : (
             filteredFindings.map((finding) => (
               <div

@@ -138,6 +138,8 @@ export const App: React.FC = () => {
   const prDiffFetchRef = useRef<(() => void) | null>(null);
   const [selectedReview, setSelectedReview] = useState<Review | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [isReviewDetailLoading, setIsReviewDetailLoading] = useState(false);
+  const reviewDetailRequestRef = useRef(0);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [activeResource, setActiveResource] = useState<ResourceType | null>(null);
   const [isGitHubModalOpen, setIsGitHubModalOpen] = useState(false);
@@ -550,11 +552,12 @@ export const App: React.FC = () => {
     diffContext?: string,
     provider?: string,
     model?: string,
-    attachments?: Attachment[]
+    attachments?: Attachment[],
+    startNewConversation = false
   ) => {
-    if (isSendingMessage) return;
+    if (isSendingMessage && !startNewConversation) return;
 
-    const targetConvId = activeConversationId;
+    const targetConvId = startNewConversation ? undefined : activeConversationId;
     const streamKey = targetConvId || `pending-${Date.now()}`;
     let streamConversationId = targetConvId;
     const selectionVersionAtStart = activeSelectionVersionRef.current;
@@ -570,7 +573,7 @@ export const App: React.FC = () => {
 
     const optimisticUserMsg: Message = {
       id: userTempId,
-      conversation_id: activeConversationId || streamKey,
+      conversation_id: targetConvId || streamKey,
       role: "user",
       content,
       status: "sent",
@@ -580,7 +583,7 @@ export const App: React.FC = () => {
 
     const optimisticAsstMsg: Message = {
       id: asstTempId,
-      conversation_id: activeConversationId || streamKey,
+      conversation_id: targetConvId || streamKey,
       role: "assistant",
       content: "",
       status: "streaming",
@@ -1481,19 +1484,28 @@ export const App: React.FC = () => {
   };
 
   const handleOpenReviewDetail = async (review: Review) => {
+    const requestId = ++reviewDetailRequestRef.current;
+    setSelectedReview(review);
+    setIsDetailOpen(true);
+    const hasDetails = review.diff_content !== undefined && review.findings !== undefined;
+    setIsReviewDetailLoading(!hasDetails);
+    if (hasDetails) return;
     try {
       const full = await reviewApi.get(review.id);
-      setSelectedReview(full);
+      if (reviewDetailRequestRef.current === requestId) setSelectedReview(full);
     } catch {
-      setSelectedReview(review);
+      // Keep the summary visible if the detail request fails.
+    } finally {
+      if (reviewDetailRequestRef.current === requestId) setIsReviewDetailLoading(false);
     }
-    setIsDetailOpen(true);
   };
 
   const handleReviewCreated = (review: Review) => {
+    reviewDetailRequestRef.current += 1;
     setReviews((prev) => [review, ...prev]);
     setSelectedReview(review);
     setIsDetailOpen(true);
+    setIsReviewDetailLoading(false);
     fetchOverviewMetrics().catch(() => {});
   };
 
@@ -1934,6 +1946,7 @@ export const App: React.FC = () => {
       <ReviewDetailModal
         review={selectedReview}
         isOpen={isDetailOpen}
+        isLoadingDetails={isReviewDetailLoading}
         onClose={() => setIsDetailOpen(false)}
       />
 
@@ -1955,8 +1968,16 @@ export const App: React.FC = () => {
         isOpen={isGitHubModalOpen}
         onClose={() => setIsGitHubModalOpen(false)}
         onAttachDiff={(diffText, title) => {
-          navigateTo("chat");
-          handleSendMessage(`Analyze this pull request: ${title}`, diffText);
+          navigateTo("chat", undefined);
+          setActiveConversation(null);
+          void handleSendMessage(
+            `Analyze this pull request: ${title}`,
+            diffText,
+            undefined,
+            undefined,
+            undefined,
+            true
+          );
         }}
         onReviewCreated={(review) => {
           handleReviewCreated(review);

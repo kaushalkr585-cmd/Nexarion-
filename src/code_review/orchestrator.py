@@ -111,6 +111,7 @@ class ReviewOrchestrator:
         cache: BaseCache | None = None,
         use_cache: bool = True,
         use_semantic_hash: bool = False,
+        progress_callback: Callable[[str, str], None] | None = None,
     ) -> None:
         self._agents: list[BaseAgent] = (
             default_agents(
@@ -129,6 +130,7 @@ class ReviewOrchestrator:
         self._cache = cache
         self._use_cache = use_cache
         self._use_semantic_hash = use_semantic_hash
+        self._progress_callback = progress_callback
         self._last_errors: dict[str, Exception] = {}
 
     @property
@@ -478,15 +480,19 @@ class ReviewOrchestrator:
         errors: dict[str, Exception] = {}
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=self._max_workers) as executor:
-            future_to_agent = {
-                executor.submit(agent.review, diff_files): agent for agent in agents
-            }
+            future_to_agent = {}
+            for agent in agents:
+                if self._progress_callback:
+                    self._progress_callback(agent.name, "running")
+                future_to_agent[executor.submit(agent.review, diff_files)] = agent
 
             for future in concurrent.futures.as_completed(future_to_agent):
                 agent = future_to_agent[future]
                 try:
                     agent_findings = future.result()
                     findings.extend(agent_findings)
+                    if self._progress_callback:
+                        self._progress_callback(agent.name, "completed")
                 except Exception as exc:
                     logger.error(
                         "Agent '%s' failed during parallel review: %s",
@@ -495,6 +501,8 @@ class ReviewOrchestrator:
                         exc_info=True,
                     )
                     errors[agent.name] = exc
+                    if self._progress_callback:
+                        self._progress_callback(agent.name, "failed")
 
         return findings, errors
 

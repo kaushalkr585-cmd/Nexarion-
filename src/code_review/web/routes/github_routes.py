@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 from typing import Any
+from uuid import uuid4
 
 from fastapi import (
     APIRouter,
@@ -32,6 +34,8 @@ router = APIRouter(prefix="/github", tags=["GitHub Integration"])
 
 _PROCESSED_DELIVERIES: dict[str, float] = {}
 DELIVERY_TTL_SECONDS = 3600.0
+_REVIEW_JOBS: dict[str, dict[str, Any]] = {}
+_REVIEW_JOBS_LOCK = threading.Lock()
 
 
 def _is_duplicate_delivery(delivery_id: str | None) -> bool:
@@ -486,17 +490,6 @@ def list_pull_requests(
     token = _get_active_token(user)
     service = GitHubService(token)
     try:
-        repos = service.list_repositories()
-        accessible = {r["full_name"].lower() for r in repos} | {r["name"].lower() for r in repos}
-        target = f"{owner}/{repo}".lower()
-        if target not in accessible and repo.lower() not in accessible:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=(
-                    f"Access denied: repository '{owner}/{repo}' is not in your "
-                    "authorized repositories."
-                ),
-            )
         return service.list_pull_requests(owner, repo)
     except HTTPException:
         raise
@@ -518,17 +511,6 @@ def get_pull_request_diff(
     token = _get_active_token(user)
     service = GitHubService(token)
     try:
-        repos = service.list_repositories()
-        accessible = {r["full_name"].lower() for r in repos} | {r["name"].lower() for r in repos}
-        target = f"{owner}/{repo}".lower()
-        if target not in accessible and repo.lower() not in accessible:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=(
-                    f"Access denied: repository '{owner}/{repo}' is not in your "
-                    "authorized repositories."
-                ),
-            )
         return service.get_pull_request_diff(owner, repo, number)
     except HTTPException:
         raise
@@ -544,21 +526,160 @@ def get_pull_request_diff(
         ) from exc
 
 
-@router.post(
-    "/repos/{owner}/{repo}/pulls/{number}/review",
-    response_model=ReviewDetailResponse,
-)
+def _run_user_pr_review_job(
+    job_id: str,
+    user_id: str,
+    token: str,
+    owner: str,
+    repo: str,
+    number: int,
+    pr_title: str,
+    diff_text: str,
+    head_sha: str | None,
+    post_to_github: bool,
+) -> None:
+    session_factory = get_session_factory()
+    db = session_factory()
+    repo_name = f"{owner}/{repo}"
+    pr_identifier = f"#{number}"
+
+    def on_agent_progress(agent_name: str, agent_status: str) -> None:
+        with _REVIEW_JOBS_LOCK:
+            job = _REVIEW_JOBS.get(job_id)
+            if job is not None:
+                job["agents"][agent_name] = agent_status
+                job["completed_agents"] = sum(
+                    value in ("completed", "failed") for value in job["agents"].values()
+                )
+
+    try:
+        settings = get_settings()
+        provider = settings.llm_provider
+        model_name = settings.nvidia_model if provider == "nvidia" else settings.ollama_model
+        start_time = time.perf_counter()
+        orchestrator = ReviewOrchestrator(
+            include_semantic=True,
+            include_llm=True,
+            llm_provider=provider,
+            parallel=True,
+            progress_callback=on_agent_progress,
+        )
+        with _REVIEW_JOBS_LOCK:
+            job = _REVIEW_JOBS.get(job_id)
+            if job is not None:
+                job["agents"] = {agent.name: "queued" for agent in orchestrator.agents}
+                job["total_agents"] = len(orchestrator.agents)
+                job["status"] = "running"
+
+        result = orchestrator.review_diff(diff_text)
+        duration = round(time.perf_counter() - start_time, 2)
+        review = ReviewRecord(
+            user_id=user_id,
+            repository_name=repo_name,
+            pr_identifier=pr_identifier,
+            title=f"GitHub PR #{number}: {pr_title}",
+            diff_content=diff_text,
+            provider=provider,
+            model_name=model_name,
+            agents_used=[agent.name for agent in orchestrator.agents],
+            finding_count=result.total_findings,
+            has_critical=result.has_critical,
+            duration_seconds=duration,
+        )
+        db.add(review)
+        db.flush()
+
+        created_findings: list[FindingRecord] = []
+        for finding in result.findings:
+            record = FindingRecord(
+                review_id=review.id,
+                agent=finding.agent.value,
+                title=finding.message[:120],
+                description=finding.message,
+                severity=finding.severity.value.upper(),
+                category=finding.category.value.upper(),
+                file_path=finding.file,
+                line_start=finding.line,
+                line_end=finding.line,
+                suggested_fix=finding.suggestion,
+                rule_id=finding.rule_id,
+                evidence=finding.file,
+            )
+            db.add(record)
+            created_findings.append(record)
+        db.commit()
+        db.refresh(review)
+
+        response = ReviewDetailResponse(
+            id=review.id,
+            repository_name=review.repository_name,
+            pr_identifier=review.pr_identifier,
+            title=review.title,
+            provider=review.provider,
+            model_name=review.model_name,
+            agents_used=review.agents_used,
+            finding_count=review.finding_count,
+            has_critical=review.has_critical,
+            duration_seconds=review.duration_seconds,
+            created_at=review.created_at,
+            diff_content=review.diff_content,
+            findings=[FindingResponse.model_validate(item) for item in created_findings],
+        )
+
+        if post_to_github:
+            try:
+                service = GitHubService(token)
+                summary_md, inline_comments, verdict_action = service.format_pr_review(
+                    findings=result.findings,
+                    owner=owner,
+                    repo=repo,
+                    pull_number=number,
+                    diff_text=diff_text,
+                    duration_seconds=duration,
+                    commit_sha=head_sha,
+                    dashboard_url=settings.github_dashboard_url or None,
+                )
+                service.post_pull_request_review(
+                    owner=owner,
+                    repo=repo,
+                    pull_number=number,
+                    body=summary_md,
+                    event=verdict_action,
+                    comments=inline_comments,
+                    commit_sha=head_sha,
+                )
+            except Exception as exc:
+                logger.warning("Could not auto-post review to GitHub PR: %s", exc)
+
+        with _REVIEW_JOBS_LOCK:
+            job = _REVIEW_JOBS.get(job_id)
+            if job is not None:
+                job["status"] = "completed"
+                job["review"] = response.model_dump(mode="json")
+        logger.info("Completed multi-agent review for GitHub PR %s %s", repo_name, pr_identifier)
+    except Exception as exc:
+        logger.exception("Review job failed for PR %s %s", repo_name, pr_identifier)
+        db.rollback()
+        with _REVIEW_JOBS_LOCK:
+            job = _REVIEW_JOBS.get(job_id)
+            if job is not None:
+                job["status"] = "failed"
+                job["error"] = str(exc)
+    finally:
+        db.close()
+
+
+@router.post("/repos/{owner}/{repo}/pulls/{number}/review")
 def review_pull_request(
     owner: str,
     repo: str,
     number: int,
+    background_tasks: BackgroundTasks,
     post_to_github: bool = Query(default=False),
-    db: Session = Depends(get_db),
     user: UserRecord = Depends(get_current_user),
-) -> ReviewDetailResponse:
+) -> dict[str, str]:
     token = _get_active_token(user)
     user_id = user.id
-    db.rollback()
     service = GitHubService(token)
 
     try:
@@ -576,118 +697,57 @@ def review_pull_request(
     diff_text = diff_info["diff"]
     pr_title = diff_info["title"]
     head_sha = diff_info.get("head_sha")
-    repo_name = f"{owner}/{repo}"
-    pr_identifier = f"#{number}"
-
-    settings = get_settings()
-    provider = settings.llm_provider
-    model_name = settings.nvidia_model if provider == "nvidia" else settings.ollama_model
-
-    start_time = time.perf_counter()
-    orchestrator = ReviewOrchestrator(
-        include_semantic=True,
-        include_llm=True,
-        llm_provider=provider,
-        parallel=True,
+    job_id = str(uuid4())
+    with _REVIEW_JOBS_LOCK:
+        expired_jobs = [
+            existing_id
+            for existing_id, existing_job in _REVIEW_JOBS.items()
+            if existing_job.get("status") in ("completed", "failed")
+            and time.monotonic() - existing_job.get("created_at", 0) > 3600
+        ]
+        for existing_id in expired_jobs:
+            _REVIEW_JOBS.pop(existing_id, None)
+        _REVIEW_JOBS[job_id] = {
+            "user_id": user_id,
+            "created_at": time.monotonic(),
+            "status": "queued",
+            "agents": {},
+            "completed_agents": 0,
+            "total_agents": 0,
+        }
+    background_tasks.add_task(
+        _run_user_pr_review_job,
+        job_id,
+        user_id,
+        token,
+        owner,
+        repo,
+        number,
+        pr_title,
+        diff_text,
+        head_sha,
+        post_to_github,
     )
+    return {"job_id": job_id, "diff": diff_text, "title": f"PR #{number}: {pr_title}"}
 
-    try:
-        result = orchestrator.review_diff(diff_text)
-    except Exception as exc:
-        logger.error("Review orchestration failed for PR %s %s: %s", repo_name, pr_identifier, exc)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Multi-agent review execution failed: {exc}",
-        ) from exc
 
-    duration = round(time.perf_counter() - start_time, 2)
-    agents_used = [str(getattr(a, "name", "agent")) for a in orchestrator.agents]
-
-    review = ReviewRecord(
-        user_id=user_id,
-        repository_name=repo_name,
-        pr_identifier=pr_identifier,
-        title=f"GitHub PR #{number}: {pr_title}",
-        diff_content=diff_text,
-        provider=provider,
-        model_name=model_name,
-        agents_used=agents_used,
-        finding_count=result.total_findings,
-        has_critical=result.has_critical,
-        duration_seconds=duration,
-    )
-    db.add(review)
-    db.flush()
-
-    created_findings: list[FindingRecord] = []
-    for f in result.findings:
-        finding = FindingRecord(
-            review_id=review.id,
-            agent=f.agent.value,
-            title=f.message[:120],
-            description=f.message,
-            severity=f.severity.value.upper(),
-            category=f.category.value.upper(),
-            file_path=f.file,
-            line_start=f.line,
-            line_end=f.line,
-            suggested_fix=f.suggestion,
-            rule_id=f.rule_id,
-            evidence=f.file,
-        )
-        db.add(finding)
-        created_findings.append(finding)
-
-    db.commit()
-    db.refresh(review)
-
-    if post_to_github:
-        try:
-            summary_md, inline_comments, verdict_action = service.format_pr_review(
-                findings=result.findings,
-                owner=owner,
-                repo=repo,
-                pull_number=number,
-                diff_text=diff_text,
-                duration_seconds=duration,
-                commit_sha=head_sha,
-                dashboard_url=settings.github_dashboard_url or None,
+@router.get("/review-jobs/{job_id}")
+def get_review_job_status(
+    job_id: str,
+    user: UserRecord = Depends(get_current_user),
+) -> dict[str, Any]:
+    with _REVIEW_JOBS_LOCK:
+        job = _REVIEW_JOBS.get(job_id)
+        if job is None or job.get("user_id") != user.id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Review job not found",
             )
-            service.post_pull_request_review(
-                owner=owner,
-                repo=repo,
-                pull_number=number,
-                body=summary_md,
-                event=verdict_action,
-                comments=inline_comments,
-                commit_sha=head_sha,
-            )
-            logger.info("Directly published review to GitHub PR %s %s", repo_name, pr_identifier)
-        except Exception as post_err:
-            logger.warning("Could not auto-post review to GitHub PR: %s", post_err)
-
-    logger.info(
-        "Completed multi-agent review for GitHub PR %s %s (%d findings)",
-        repo_name,
-        pr_identifier,
-        len(created_findings),
-    )
-
-    return ReviewDetailResponse(
-        id=review.id,
-        repository_name=review.repository_name,
-        pr_identifier=review.pr_identifier,
-        title=review.title,
-        provider=review.provider,
-        model_name=review.model_name,
-        agents_used=review.agents_used,
-        finding_count=review.finding_count,
-        has_critical=review.has_critical,
-        duration_seconds=review.duration_seconds,
-        created_at=review.created_at,
-        diff_content=review.diff_content,
-        findings=[FindingResponse.model_validate(f) for f in created_findings],
-    )
+        return {
+            key: value
+            for key, value in job.items()
+            if key not in {"user_id", "created_at"}
+        }
 
 
 @router.post(

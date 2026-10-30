@@ -11,6 +11,7 @@ import type {
   ProviderStatusResponse,
   ProviderTestResponse,
   Review,
+  ReviewJobStatus,
   User,
 } from "../types";
 
@@ -1014,11 +1015,16 @@ export const githubApi = {
     repo: string,
     number: number,
     postToGithub: boolean = false
-  ): Promise<Review> {
+  ): Promise<{ job_id: string; diff: string; title: string }> {
     const query = postToGithub ? "?post_to_github=true" : "";
-    return request<Review>(`/api/github/repos/${owner}/${repo}/pulls/${number}/review${query}`, {
-      method: "POST",
-    });
+    return request<{ job_id: string; diff: string; title: string }>(
+      `/api/github/repos/${owner}/${repo}/pulls/${number}/review${query}`,
+      { method: "POST" }
+    );
+  },
+
+  async getReviewJob(jobId: string): Promise<ReviewJobStatus> {
+    return request<ReviewJobStatus>(`/api/github/review-jobs/${jobId}`);
   },
 
   async postReview(

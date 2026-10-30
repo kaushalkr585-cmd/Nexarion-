@@ -1,5 +1,11 @@
 import React, { useEffect, useState } from "react";
-import type { GitHubPullRequest, GitHubRepo, GitHubStatus, Review } from "../../types";
+import type {
+  GitHubPullRequest,
+  GitHubRepo,
+  GitHubStatus,
+  Review,
+  ReviewJobStatus,
+} from "../../types";
 import { githubApi } from "../../services/api";
 
 interface GitHubPrPickerModalProps {
@@ -34,6 +40,49 @@ export const GitHubPrPickerModal: React.FC<GitHubPrPickerModalProps> = ({
 
   const [isAttachingDiff, setIsAttachingDiff] = useState<number | null>(null);
   const [isStartingReview, setIsStartingReview] = useState<number | null>(null);
+  const [activeReviewJobId, setActiveReviewJobId] = useState<string | null>(null);
+  const [activeReviewJob, setActiveReviewJob] = useState<ReviewJobStatus | null>(null);
+  const [activeReviewDiff, setActiveReviewDiff] = useState("");
+  const [activeReviewTitle, setActiveReviewTitle] = useState("");
+
+  useEffect(() => {
+    if (!activeReviewJobId) return;
+    let cancelled = false;
+    let pollInFlight = false;
+    const poll = async () => {
+      if (pollInFlight) return;
+      pollInFlight = true;
+      try {
+        const job = await githubApi.getReviewJob(activeReviewJobId);
+        if (cancelled) return;
+        setActiveReviewJob(job);
+        if (job.status === "completed" && job.review) {
+          setActiveReviewJobId(null);
+          onReviewCreated(job.review);
+          onClose();
+          setIsStartingReview(null);
+        } else if (job.status === "failed") {
+          setActiveReviewJobId(null);
+          setIsStartingReview(null);
+          setErrorMessage(job.error || "The review failed. Please try again.");
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setActiveReviewJobId(null);
+          setIsStartingReview(null);
+          setErrorMessage(err instanceof Error ? err.message : "Could not check review progress.");
+        }
+      } finally {
+        pollInFlight = false;
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 1500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [activeReviewJobId, onClose, onReviewCreated]);
 
   useEffect(() => {
     if (isOpen) {
@@ -42,6 +91,10 @@ export const GitHubPrPickerModal: React.FC<GitHubPrPickerModalProps> = ({
       setSelectedRepo(null);
       setPulls([]);
       setErrorMessage(null);
+      setActiveReviewJobId(null);
+      setActiveReviewJob(null);
+      setActiveReviewDiff("");
+      setIsStartingReview(null);
     }
   }, [isOpen]);
 
@@ -150,18 +203,27 @@ export const GitHubPrPickerModal: React.FC<GitHubPrPickerModalProps> = ({
     if (!selectedRepo) return;
     setIsStartingReview(pr.number);
     setErrorMessage(null);
+    let jobStarted = false;
     try {
-      const review = await githubApi.reviewPullRequest(
+      const job = await githubApi.reviewPullRequest(
         selectedRepo.owner,
         selectedRepo.name,
         pr.number
       );
-      onReviewCreated(review);
-      onClose();
+      setActiveReviewDiff(job.diff);
+      setActiveReviewTitle(job.title);
+      setActiveReviewJob({
+        status: "queued",
+        agents: {},
+        completed_agents: 0,
+        total_agents: 0,
+      });
+      setActiveReviewJobId(job.job_id);
+      jobStarted = true;
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : "Failed to run review.");
     } finally {
-      setIsStartingReview(null);
+      if (!jobStarted) setIsStartingReview(null);
     }
   };
 
@@ -292,6 +354,46 @@ export const GitHubPrPickerModal: React.FC<GitHubPrPickerModalProps> = ({
                 </div>
               </div>
 
+              {activeReviewJob && (
+                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/10 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold text-white">{activeReviewTitle}</div>
+                      <div className="text-[11px] text-neutral-400 mt-1">
+                        {activeReviewJob.status === "queued"
+                          ? "Review queued..."
+                          : activeReviewJob.status === "failed"
+                            ? "Review failed"
+                            : `Reviewing with ${activeReviewJob.completed_agents}/${activeReviewJob.total_agents} agents complete`}
+                      </div>
+                    </div>
+                    {(activeReviewJob.status === "queued" || activeReviewJob.status === "running") && (
+                      <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin flex-shrink-0" />
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {Object.entries(activeReviewJob.agents).map(([name, agentStatus]) => (
+                      <span key={name} className={`px-2 py-1 rounded-md border text-[10px] font-mono ${
+                        agentStatus === "completed" ? "text-emerald-300 border-emerald-500/30 bg-emerald-500/10" :
+                        agentStatus === "failed" ? "text-red-300 border-red-500/30 bg-red-500/10" :
+                        agentStatus === "running" ? "text-white border-white/30 bg-white/10" :
+                        "text-neutral-400 border-white/10 bg-white/5"
+                      }`}>
+                        {name}: {agentStatus}
+                      </span>
+                    ))}
+                  </div>
+                  <details>
+                    <summary className="cursor-pointer text-[11px] text-neutral-300 hover:text-white">
+                      Inspect PR diff ({activeReviewDiff.split("\n").length} lines)
+                    </summary>
+                    <pre className="mt-2 max-h-48 overflow-auto rounded-lg bg-black/70 border border-white/10 p-3 text-[10px] leading-relaxed text-neutral-300 whitespace-pre-wrap break-all">
+                      {activeReviewDiff}
+                    </pre>
+                  </details>
+                </div>
+              )}
+
               {isLoadingPulls ? (
                 <div className="py-12 text-center text-xs text-neutral-400 font-mono">
                   Loading pull requests from GitHub...
@@ -338,7 +440,7 @@ export const GitHubPrPickerModal: React.FC<GitHubPrPickerModalProps> = ({
                         <button
                           type="button"
                           onClick={() => handleAttachDiff(pr)}
-                          disabled={isAttachingDiff === pr.number || isStartingReview === pr.number}
+                          disabled={isAttachingDiff === pr.number || isStartingReview === pr.number || Boolean(activeReviewJobId)}
                           className="py-1.5 px-3 rounded-lg bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white border border-white/10 text-xs font-medium transition-colors"
                         >
                           {isAttachingDiff === pr.number ? "Retrieving Diff..." : "Attach Diff to Chat"}
@@ -346,10 +448,10 @@ export const GitHubPrPickerModal: React.FC<GitHubPrPickerModalProps> = ({
                         <button
                           type="button"
                           onClick={() => handleRunReview(pr)}
-                          disabled={isAttachingDiff === pr.number || isStartingReview === pr.number}
+                          disabled={isAttachingDiff === pr.number || isStartingReview === pr.number || Boolean(activeReviewJobId)}
                           className="btn-silver py-1.5 px-3 text-xs"
                         >
-                          {isStartingReview === pr.number ? "Running AI Agents..." : "Run AI Review"}
+                          {isStartingReview === pr.number ? "Review in progress..." : "Run AI Review"}
                         </button>
                       </div>
                     </div>

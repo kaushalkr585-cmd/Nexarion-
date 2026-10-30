@@ -102,6 +102,15 @@ export interface Review {
   findings?: Finding[];
 }
 
+export interface ReviewJobStatus {
+  status: "queued" | "running" | "completed" | "failed";
+  agents: Record<string, "queued" | "running" | "completed" | "failed">;
+  completed_agents: number;
+  total_agents: number;
+  review?: Review;
+  error?: string;
+}
+
 export interface PullRequest {
   id: string;
   repository_name: string;
