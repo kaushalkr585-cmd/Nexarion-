@@ -458,7 +458,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = React.memo(({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {providerStatus?.providers.map((p) => (
+          {providerStatus?.providers
+            .filter((p) => p.provider !== "ollama")
+            .map((p) => (
             <div
               key={p.provider}
               className="p-4 rounded-xl bg-white/[0.03] border border-white/10 space-y-3"

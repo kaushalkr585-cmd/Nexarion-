@@ -41,7 +41,9 @@ frontend/dist/
 Thumbs.db
 .DS_Store
 
-# ── Cache directories ─────────────────────────────────────
+# ── Temporary files ──────────────────────────────────────
+tmp/
+*.log
 .cache/
 .code_review_cache/
 

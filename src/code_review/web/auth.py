@@ -65,7 +65,6 @@ def get_current_user_optional(
             user = db.query(UserRecord).filter(UserRecord.id == payload["sub"]).first()
             if user:
                 return user
-    us
     return None
 
 

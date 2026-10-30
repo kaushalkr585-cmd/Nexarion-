@@ -1,0 +1,23 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "${BACKEND_URL}/api/$1",
+      "env": ["BACKEND_URL"]
+    },
+    {
+      "src": "/avatars/(.*)",
+      "dest": "${BACKEND_URL}/avatars/$1",
+      "env": ["BACKEND_URL"]
+    },
+    {
+      "src": "/health",
+      "dest": "${BACKEND_URL}/health",
+      "env": ["BACKEND_URL"]
+    }
+  ]
+}

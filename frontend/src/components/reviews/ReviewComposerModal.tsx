@@ -232,14 +232,9 @@ export const ReviewComposerModal: React.FC<ReviewComposerModalProps> = ({
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <span className="text-neutral-400 font-mono">Inference:</span>
-                <select
-                  value={provider}
-                  onChange={(e) => setProvider(e.target.value as "nvidia" | "ollama")}
-                  className="bg-neutral-900 border border-white/15 text-white rounded-lg px-2.5 py-1 text-xs focus:outline-none"
-                >
-                  <option value="nvidia">Cloud Inference</option>
-                  <option value="ollama">Local Ollama</option>
-                </select>
+                <span className="text-xs font-mono text-neutral-300 bg-white/10 px-2.5 py-1 rounded-lg border border-white/15">
+                  Cloud — Nemotron
+                </span>
               </div>
 
               <label className="flex items-center gap-2 cursor-pointer text-neutral-300">

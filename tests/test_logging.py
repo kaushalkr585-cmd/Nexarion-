@@ -22,7 +22,7 @@ class TestLoggingSetup:
         import sys
 
         setup_logging()
-        setup_logging()   er
+        setup_logging()
         root_logger = logging.getLogger()
 
         our_handlers = [

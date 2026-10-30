@@ -57,18 +57,6 @@ def get_providers_status() -> ProviderStatusResponse:
 
     providers = [
         ProviderStatusItem(
-            provider="ollama",
-            name="Ollama (Local)",
-            is_available=ollama_ok,
-            current_model=settings.ollama_model or settings.llm_model,
-            endpoint=settings.ollama_base_url or settings.llm_base_url,
-            type="local",
-            note="Offline inference on local hardware"
-            if ollama_ok
-            else "Ollama server is not running on localhost:11434",
-            available_models=ollama_models,
-        ),
-        ProviderStatusItem(
             provider="nvidia",
             name="NVIDIA Nemotron (Cloud)",
             is_available=nemotron_ok,
@@ -80,10 +68,20 @@ def get_providers_status() -> ProviderStatusResponse:
             else "API key missing or invalid",
             available_models=nemotron_models,
         ),
+        ProviderStatusItem(
+            provider="ollama",
+            name="Ollama (Local)",
+            is_available=False,
+            current_model=settings.ollama_model or settings.llm_model,
+            endpoint=settings.ollama_base_url or settings.llm_base_url,
+            type="local",
+            note="Disabled for cloud deployment (Nemotron exclusive)",
+            available_models=[],
+        ),
     ]
 
     return ProviderStatusResponse(
-        active_provider=settings.llm_provider,
+        active_provider="nvidia",
         providers=providers,
     )
 

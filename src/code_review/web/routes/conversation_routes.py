@@ -22,8 +22,8 @@ from code_review.config import get_settings
 from code_review.db.database import get_db, get_session_factory
 from code_review.db.models import (
     AttachmentRecord,
-    ConversationRecord,
     ConversationMemoryRecord,
+    ConversationRecord,
     DocumentChunkRecord,
     MessageRecord,
     UserRecord,

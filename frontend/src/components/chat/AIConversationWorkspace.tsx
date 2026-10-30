@@ -32,7 +32,7 @@ import {
 } from "../icons/Icons";
 import { MarkdownContent } from "./MarkdownContent";
 import { MessageActionToolbar } from "./MessageActionToolbar";
-import { ModelSelector, type SelectedModel } from "./ModelSelector";
+import type { SelectedModel } from "./ModelSelector";
 import { getPersonalizedGreeting } from "./greetings";
 import { AdaptiveStatusIndicator } from "./AdaptiveStatusIndicator";
 import { FilePreviewModal } from "./FilePreviewModal";
@@ -349,19 +349,9 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
   const prevMessageCountRef = useRef(conversation?.messages?.length || 0);
 
   const [selectedModel, setSelectedModel] = useState<SelectedModel>(() => {
-    const saved = localStorage.getItem("nexarion_selected_model");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed.provider === "nvidia" || parsed.provider === "ollama") {
-          return { provider: parsed.provider };
-        }
-      } catch {
-
-      }
-    }
     return {
-      provider: activeProvider === "nvidia" ? "nvidia" : "ollama",
+      provider: "nvidia",
+      model: "nvidia/nemotron-3-ultra-550b-a55b",
     };
   });
 
@@ -638,7 +628,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
 
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-[11px] font-mono text-neutral-400">
             <span className="w-1.5 h-1.5 rounded-full bg-neutral-300" />
-            <span>Mode: {activeProvider === "nvidia" ? "Cloud Inference" : "Local Inference"}</span>
+            <span>Mode: Cloud Inference (Nemotron)</span>
           </div>
 
           <button
@@ -1209,13 +1199,6 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
 
           <div className="flex items-center justify-between pt-2 mt-1 border-t border-white/5 gap-2">
             <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-wrap sm:flex-nowrap">
-              <ModelSelector
-                providerStatus={providerStatus}
-                selectedModel={selectedModel}
-                onSelectModel={handleSelectModel}
-                disabled={isSending}
-              />
-
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}

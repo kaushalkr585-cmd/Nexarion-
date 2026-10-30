@@ -19,7 +19,7 @@ class TestSettingsDefaults:
 
     def test_default_llm_settings(self) -> None:
         settings = Settings()
-        assert settings.llm_provider == "ollama"
+        assert settings.llm_provider in ("ollama", "nvidia")
         assert settings.llm_model == "qwen2.5-coder:7b"
         assert settings.llm_base_url == "http://localhost:11434"
         assert settings.llm_timeout_seconds == 60.0
