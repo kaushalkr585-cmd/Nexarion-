@@ -1,0 +1,23 @@
+--- a/src/stats.py
++++ b/src/stats.py
+@@ -1,5 +1,18 @@
+ """Statistical and utility functions."""
+ 
+ 
+-def calculate_total(values: list[float]) -> float:
+-    return sum(values)
++def calculate_average(values: list[float]) -> float:
++    """Compute arithmetic mean of a sequence."""
++    return sum(values) / len(values)
++
++
++def register_user(username: str, tags: list[str] = []) -> dict[str, list[str]]:
++    """Register user with initial tags."""
++    tags.append(username)
++    return {"user": username, "tags": tags}
++
++
++def read_config_file(filepath: str) -> str:
++    """Read configuration from disk."""
++    f = open(filepath, "r", encoding="utf-8")
++    return f.read()

@@ -1,0 +1,31 @@
+--- a/src/auth.py
++++ b/src/auth.py
+@@ -1,8 +1,12 @@
++"""Authentication module for the application."""
++
+ import hashlib
++import secrets
+ 
+ 
+-def check_password(password, stored_hash):
+-    hashed = hashlib.md5(password.encode()).hexdigest()
++def check_password(password: str, stored_hash: str) -> bool:
++    """Verify a password against a stored hash using SHA-256."""
++    hashed = hashlib.sha256(password.encode()).hexdigest()
+     return hashed == stored_hash
+ 
+ 
+@@ -12,3 +16,12 @@
+ def get_user(user_id):
+     # TODO: implement database lookup
+     return {"id": user_id, "name": "placeholder"}
++
++
++def create_token(user_id: int) -> str:
++    """Generate a secure random token for session management."""
++    return secrets.token_urlsafe(32)
++
++
++def validate_token(token: str) -> bool:
++    """Validate a session token. Returns True if valid."""
++    return len(token) > 0

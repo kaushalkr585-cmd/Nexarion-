@@ -1,0 +1,274 @@
+from __future__ import annotations
+
+import logging
+import time
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.orm import Session, joinedload, load_only
+
+from code_review.config import get_settings
+from code_review.db.database import get_db
+from code_review.db.models import AgentConfigRecord, FindingRecord, ReviewRecord, UserRecord
+from code_review.orchestrator import ReviewOrchestrator
+from code_review.web.auth import get_current_user_optional
+from code_review.web.schemas import (
+    FindingResponse,
+    ReviewCreateRequest,
+    ReviewDetailResponse,
+    ReviewSummaryResponse,
+)
+
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/reviews", tags=["Reviews"])
+
+
+@router.post("", response_model=ReviewDetailResponse)
+def create_review(
+    payload: ReviewCreateRequest,
+    db: Session = Depends(get_db),
+    user: UserRecord | None = Depends(get_current_user_optional),
+) -> ReviewDetailResponse:
+    settings = get_settings()
+    provider = payload.provider.lower().strip()
+    if provider not in ("ollama", "nvidia"):
+        provider = settings.llm_provider
+
+    model_name = settings.nvidia_model if provider == "nvidia" else settings.ollama_model
+
+    start_time = time.perf_counter()
+
+    active_configs = db.query(AgentConfigRecord).filter_by(is_enabled=True).all()
+    enabled_agent_ids = (
+        {c.agent_id for c in active_configs}
+        if active_configs
+        else {"security", "quality", "performance", "documentation"}
+    )
+
+    include_llm = payload.include_llm and (
+        "documentation" in enabled_agent_ids
+        or "test" in enabled_agent_ids
+        or "llm" in enabled_agent_ids
+    )
+
+    include_semantic = ("semantic" in enabled_agent_ids) if active_configs else True
+
+    orchestrator = ReviewOrchestrator(
+        include_semantic=include_semantic,
+        include_llm=include_llm,
+        llm_provider=provider,
+        parallel=True,
+    )
+
+    try:
+        result = orchestrator.review_diff(payload.diff_text)
+    except Exception as exc:
+        logger.error("Review orchestration failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Review execution failed: {exc}",
+        ) from exc
+
+    duration = round(time.perf_counter() - start_time, 2)
+    agents_used = [str(getattr(a, "name", "agent")) for a in orchestrator.agents]
+
+    review = ReviewRecord(
+        user_id=user.id if user else None,
+        repository_name=payload.repository_name,
+        pr_identifier=payload.pr_identifier,
+        title=payload.title,
+        diff_content=payload.diff_text,
+        provider=provider,
+        model_name=model_name,
+        agents_used=agents_used,
+        finding_count=result.total_findings,
+        has_critical=result.has_critical,
+        duration_seconds=duration,
+    )
+    db.add(review)
+    db.flush()
+
+    created_findings: list[FindingRecord] = []
+    for f in result.findings:
+        finding_record = FindingRecord(
+            review_id=review.id,
+            agent=f.agent.value,
+            title=f.message[:120],
+            description=f.message,
+            severity=f.severity.value.upper(),
+            category=f.category.value.upper(),
+            file_path=f.file,
+            line_start=f.line,
+            line_end=f.line,
+            suggested_fix=f.suggestion,
+            rule_id=f.rule_id,
+            evidence=f.file,
+        )
+        db.add(finding_record)
+        created_findings.append(finding_record)
+
+    db.commit()
+    db.refresh(review)
+
+    return ReviewDetailResponse(
+        id=review.id,
+        repository_name=review.repository_name,
+        pr_identifier=review.pr_identifier,
+        title=review.title,
+        provider=review.provider,
+        model_name=review.model_name,
+        agents_used=review.agents_used,
+        finding_count=review.finding_count,
+        has_critical=review.has_critical,
+        duration_seconds=review.duration_seconds,
+        created_at=review.created_at,
+        diff_content=review.diff_content,
+        findings=[FindingResponse.model_validate(f) for f in created_findings],
+    )
+
+
+@router.get("", response_model=list[ReviewSummaryResponse])
+def list_reviews(
+    search: str | None = Query(None),
+    repository: str | None = Query(None),
+    agent: str | None = Query(None),
+    db: Session = Depends(get_db),
+    user: UserRecord | None = Depends(get_current_user_optional),
+) -> list[ReviewSummaryResponse]:
+    if not user:
+        return []
+
+    query = (
+        db.query(ReviewRecord)
+        .options(
+            load_only(
+                ReviewRecord.id,
+                ReviewRecord.user_id,
+                ReviewRecord.repository_name,
+                ReviewRecord.pr_identifier,
+                ReviewRecord.title,
+                ReviewRecord.provider,
+                ReviewRecord.model_name,
+                ReviewRecord.agents_used,
+                ReviewRecord.finding_count,
+                ReviewRecord.has_critical,
+                ReviewRecord.duration_seconds,
+                ReviewRecord.created_at,
+            )
+        )
+        .filter(ReviewRecord.user_id == user.id)
+        .order_by(ReviewRecord.created_at.desc())
+    )
+
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            ReviewRecord.title.ilike(search_term) | ReviewRecord.repository_name.ilike(search_term)
+        )
+
+    if repository and repository.lower() != "all":
+        query = query.filter(ReviewRecord.repository_name == repository)
+
+    reviews = query.limit(50).all()
+    return [ReviewSummaryResponse.model_validate(r) for r in reviews]
+
+
+@router.get("/{review_id}", response_model=ReviewDetailResponse)
+def get_review(
+    review_id: str,
+    db: Session = Depends(get_db),
+    user: UserRecord | None = Depends(get_current_user_optional),
+) -> ReviewDetailResponse:
+    query = (
+        db.query(ReviewRecord)
+        .options(joinedload(ReviewRecord.findings))
+        .filter(ReviewRecord.id == review_id)
+    )
+    if user:
+        query = query.filter(ReviewRecord.user_id == user.id)
+    else:
+        query = query.filter(ReviewRecord.user_id.is_(None))
+
+    review = query.first()
+    if not review:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Review '{review_id}' not found.",
+        )
+
+    return ReviewDetailResponse(
+        id=review.id,
+        repository_name=review.repository_name,
+        pr_identifier=review.pr_identifier,
+        title=review.title,
+        provider=review.provider,
+        model_name=review.model_name,
+        agents_used=review.agents_used,
+        finding_count=review.finding_count,
+        has_critical=review.has_critical,
+        duration_seconds=review.duration_seconds,
+        created_at=review.created_at,
+        diff_content=review.diff_content,
+        findings=[FindingResponse.model_validate(f) for f in review.findings],
+    )
+
+
+@router.delete("/{review_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_review(
+    review_id: str,
+    db: Session = Depends(get_db),
+    user: UserRecord | None = Depends(get_current_user_optional),
+) -> None:
+    query = db.query(ReviewRecord).filter(ReviewRecord.id == review_id)
+    if user:
+        query = query.filter(ReviewRecord.user_id == user.id)
+    else:
+        query = query.filter(ReviewRecord.user_id.is_(None))
+
+    review = query.first()
+    if not review:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Review '{review_id}' not found.",
+        )
+
+    db.query(FindingRecord).filter(FindingRecord.review_id == review.id).delete(
+        synchronize_session=False
+    )
+    db.delete(review)
+    db.commit()
+    logger.info(
+        "Successfully deleted review %s and its findings for user %s",
+        review_id,
+        user.id if user else "guest",
+    )
+
+
+@router.delete("", status_code=status.HTTP_204_NO_CONTENT)
+def clear_reviews(
+    db: Session = Depends(get_db),
+    user: UserRecord | None = Depends(get_current_user_optional),
+) -> None:
+    if user:
+        user_reviews = db.query(ReviewRecord).filter(ReviewRecord.user_id == user.id).all()
+        review_ids = [r.id for r in user_reviews]
+        if review_ids:
+            db.query(FindingRecord).filter(FindingRecord.review_id.in_(review_ids)).delete(
+                synchronize_session=False
+            )
+            db.query(ReviewRecord).filter(ReviewRecord.user_id == user.id).delete(
+                synchronize_session=False
+            )
+            db.commit()
+        logger.info("Cleared %d reviews for user %s", len(review_ids), user.id)
+    else:
+        anon_reviews = db.query(ReviewRecord).filter(ReviewRecord.user_id.is_(None)).all()
+        review_ids = [r.id for r in anon_reviews]
+        if review_ids:
+            db.query(FindingRecord).filter(FindingRecord.review_id.in_(review_ids)).delete(
+                synchronize_session=False
+            )
+            db.query(ReviewRecord).filter(ReviewRecord.user_id.is_(None)).delete(
+                synchronize_session=False
+            )
+            db.commit()
+        logger.info("Cleared %d anonymous reviews", len(review_ids))

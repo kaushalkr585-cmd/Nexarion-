@@ -1,0 +1,51 @@
+# ── Secrets ──────────────────────────────────────────────
+# .env contains API keys, tokens, and passwords.
+# NEVER commit this file. Use .env.example as a template.
+.env
+
+# ── Python bytecode ──────────────────────────────────────
+# Python compiles .py files to .pyc bytecache for speed.
+# These are machine-specific and should not be shared.
+__pycache__/
+*.pyc
+*.pyo
+
+# ── Virtual environment ──────────────────────────────────
+# The venv folder contains all installed packages.
+# Each developer creates their own from pyproject.toml.
+.venv/
+venv/
+
+# ── IDE / editor settings ───────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Distribution / packaging ────────────────────────────
+dist/
+build/
+*.egg-info/
+
+# ── Test / coverage artifacts ────────────────────────────
+.pytest_cache/
+htmlcov/
+.coverage
+
+# ── Frontend & Node ──────────────────────────────────────
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# ── OS files ─────────────────────────────────────────────
+Thumbs.db
+.DS_Store
+
+# ── Cache directories ─────────────────────────────────────
+.cache/
+.code_review_cache/
+
+# ── Uploaded user avatars ────────────────────────────────
+frontend/public/avatars/*
+!frontend/public/avatars/.gitkeep
+.vite/

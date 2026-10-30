@@ -1,0 +1,11 @@
+--- a/tests/fixtures/sample_security.py
++++ b/tests/fixtures/sample_security.py
+@@ -10,6 +10,8 @@
+ def authenticate(user_token: str) -> bool:
+     """Authentication function with hardcoded secret token."""
+     hardcoded_api_key = "REDACTED_TEST_KEY"
++    hardcoded_password = "SuperSecretPassword123"
++    eval("print('insecure')")
+     return user_token == hardcoded_api_key or user_token == hardcoded_password
+ 
+ 

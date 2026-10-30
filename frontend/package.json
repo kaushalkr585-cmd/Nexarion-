@@ -1,0 +1,26 @@
+{
+  "name": "nexarion-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "npx tsx --test src/components/chat/greetings.test.mjs src/components/chat/context_menu.test.mjs src/components/chat/document_title_and_history_header.test.mjs src/components/chat/ask_nexarion.test.mjs src/components/chat/welcome_message.test.mjs src/components/chat/edit_message.test.mjs"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.6.1",
+    "postcss": "^8.5.31",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.3",
+    "vite": "^6.2.0"
+  }
+}

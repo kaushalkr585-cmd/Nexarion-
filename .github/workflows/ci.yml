@@ -1,0 +1,173 @@
+name: CI / CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+  pull_request:
+    branches:
+      - main
+      - master
+      - develop
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Job 1: Linting & Code Formatting ────────────────────────────────────────
+  lint-and-format:
+    name: Lint & Format Check (Ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Ruff
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff>=0.4.0
+
+      - name: Run Ruff Lint Checks
+        run: ruff check .
+
+      - name: Run Ruff Formatting Verification
+        run: ruff format --check .
+
+  # ── Job 2: Security Static Analysis (Bandit) ────────────────────────────────
+  security-scan:
+    name: Security Scan (Bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Bandit
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit>=1.7.0
+
+      - name: Run Bandit Security Analysis (Medium & High Severity)
+        run: bandit -r src -ll
+
+  # ── Job 3: Backend Pytest Suite with Coverage & PostgreSQL ─────────────────
+  backend-tests:
+    name: Backend Tests (Python ${{ matrix.python-version }})
+    needs: [lint-and-format, security-scan]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: nexarion_test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run Pytest with Coverage
+        env:
+          DATABASE_URL: postgresql+psycopg://postgres:test_password@localhost:5432/nexarion_test_db
+          LOG_LEVEL: WARNING
+          DEBUG: "false"
+        run: |
+          pytest --cov=code_review --cov-report=xml --cov-report=term-missing
+
+      - name: Upload Coverage Artifact
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage-report
+          path: coverage.xml
+          retention-days: 14
+
+  # ── Job 4: Frontend Build & Unit Tests ──────────────────────────────────────
+  frontend-tests:
+    name: Frontend Build & Tests (Node 20)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+          cache-dependency-path: frontend/package.json
+
+      - name: Install Frontend Dependencies
+        run: npm install
+
+      - name: Build Production Bundle (Vite + TypeScript)
+        run: npm run build
+
+      - name: Run Frontend Tests
+        run: npm test
+
+  # ── Job 5: Docker Container Build Verification ──────────────────────────────
+  docker-build:
+    name: Docker Image Build Verification
+    needs: [backend-tests, frontend-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Container Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: nexarion:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

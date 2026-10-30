@@ -1,0 +1,156 @@
+[
+  {
+    "category": "Engine",
+    "name": "Unified Diff Parser (parse_diff)",
+    "mean_ms": 0.06,
+    "median_ms": 0.05,
+    "p95_ms": 0.07,
+    "p99_ms": 0.12,
+    "min_ms": 0.05,
+    "max_ms": 0.12,
+    "est_rps": 17776.8
+  },
+  {
+    "category": "Engine",
+    "name": "AST Semantic Analysis (ASTAgent)",
+    "mean_ms": 0.19,
+    "median_ms": 0.18,
+    "p95_ms": 0.25,
+    "p99_ms": 0.27,
+    "min_ms": 0.16,
+    "max_ms": 0.27,
+    "est_rps": 5400.2
+  },
+  {
+    "category": "Engine",
+    "name": "Bandit Security Scanner (BanditAgent)",
+    "mean_ms": 0.17,
+    "median_ms": 0.16,
+    "p95_ms": 0.23,
+    "p99_ms": 0.29,
+    "min_ms": 0.16,
+    "max_ms": 0.29,
+    "est_rps": 5917.6
+  },
+  {
+    "category": "Engine",
+    "name": "Ruff Linter Rule Scanner (RuffAgent)",
+    "mean_ms": 0.17,
+    "median_ms": 0.16,
+    "p95_ms": 0.22,
+    "p99_ms": 0.29,
+    "min_ms": 0.16,
+    "max_ms": 0.29,
+    "est_rps": 5761.2
+  },
+  {
+    "category": "Engine",
+    "name": "Parallel Multi-Agent Dispatch",
+    "mean_ms": 1.56,
+    "median_ms": 1.55,
+    "p95_ms": 1.78,
+    "p99_ms": 1.79,
+    "min_ms": 1.36,
+    "max_ms": 1.79,
+    "est_rps": 639.3
+  },
+  {
+    "category": "FastAPI",
+    "name": "GET /api/health",
+    "mean_ms": 4.4,
+    "median_ms": 4.34,
+    "p95_ms": 5.18,
+    "p99_ms": 5.83,
+    "min_ms": 3.73,
+    "max_ms": 5.83,
+    "est_rps": 227.3
+  },
+  {
+    "category": "FastAPI",
+    "name": "GET /api/auth/me (JWT Auth)",
+    "mean_ms": 6.77,
+    "median_ms": 6.75,
+    "p95_ms": 7.3,
+    "p99_ms": 7.35,
+    "min_ms": 6.16,
+    "max_ms": 7.35,
+    "est_rps": 147.8
+  },
+  {
+    "category": "FastAPI",
+    "name": "GET /api/overview/metrics (SQL)",
+    "mean_ms": 8.8,
+    "median_ms": 8.78,
+    "p95_ms": 9.25,
+    "p99_ms": 9.64,
+    "min_ms": 7.97,
+    "max_ms": 9.64,
+    "est_rps": 113.7
+  },
+  {
+    "category": "FastAPI",
+    "name": "GET /api/agents (Agent Configs)",
+    "mean_ms": 6.02,
+    "median_ms": 6.02,
+    "p95_ms": 6.83,
+    "p99_ms": 6.98,
+    "min_ms": 5.47,
+    "max_ms": 6.98,
+    "est_rps": 166.1
+  },
+  {
+    "category": "FastAPI",
+    "name": "GET /api/prs (Pull Requests)",
+    "mean_ms": 6.98,
+    "median_ms": 6.69,
+    "p95_ms": 8.16,
+    "p99_ms": 18.98,
+    "min_ms": 5.13,
+    "max_ms": 18.98,
+    "est_rps": 143.2
+  },
+  {
+    "category": "FastAPI",
+    "name": "GET /api/reviews (Review History)",
+    "mean_ms": 9.64,
+    "median_ms": 9.63,
+    "p95_ms": 10.58,
+    "p99_ms": 11.22,
+    "min_ms": 8.67,
+    "max_ms": 11.22,
+    "est_rps": 103.8
+  },
+  {
+    "category": "FastAPI",
+    "name": "GET /api/conversations (Threads)",
+    "mean_ms": 10.54,
+    "median_ms": 10.32,
+    "p95_ms": 12.13,
+    "p99_ms": 14.38,
+    "min_ms": 9.22,
+    "max_ms": 14.38,
+    "est_rps": 94.9
+  },
+  {
+    "category": "FastAPI",
+    "name": "POST /api/reviews (Multi-Agent)",
+    "mean_ms": 16.51,
+    "median_ms": 16.29,
+    "p95_ms": 18.12,
+    "p99_ms": 18.12,
+    "min_ms": 15.75,
+    "max_ms": 18.12,
+    "est_rps": 60.6
+  },
+  {
+    "category": "FastAPI",
+    "name": "POST /api/conversations (Create)",
+    "mean_ms": 15.74,
+    "median_ms": 12.14,
+    "p95_ms": 67.74,
+    "p99_ms": 67.74,
+    "min_ms": 10.87,
+    "max_ms": 67.74,
+    "est_rps": 63.5
+  }
+]

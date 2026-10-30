@@ -1,0 +1,23 @@
+diff --git a/src/billing.py b/src/billing.py
+--- a/src/billing.py
++++ b/src/billing.py
+@@ -1,7 +1,8 @@
+-def calculate_total(subtotal: float, tax_rate: float, discount: float = 0.0) -> float:
+-    return (subtotal * (1.0 + tax_rate)) - discount
++from src.checkout import process_payment
++
++def calculate_total(subtotal: float, tax_rate: float, currency: str, discount: float = 0.0) -> float:
++    return (subtotal * (1.0 + tax_rate)) - discount
+
+diff --git a/src/checkout.py b/src/checkout.py
+--- a/src/checkout.py
++++ b/src/checkout.py
+@@ -1,6 +1,8 @@
+-from src.billing import old_tax_calculator
++from src.billing import calculate_total, nonexistent_tax_helper
+ 
+ def process_payment(amount: float) -> bool:
+-    tax = old_tax_calculator(amount)
++    # Missing required argument 'currency'
++    tax = calculate_total(amount, 0.08)
+     return tax > 0
