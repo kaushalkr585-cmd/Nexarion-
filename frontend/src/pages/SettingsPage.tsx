@@ -1,29 +1,22 @@
 import React, { useEffect, useState } from "react";
-import type { GitHubStatus, ProviderStatusResponse, ProviderTestResponse, User } from "../types";
-import { githubApi, providerApi, userApi } from "../services/api";
-import { SettingsIcon, UserIcon } from "../components/icons/Icons";
+import type { GitHubStatus, User } from "../types";
+import { githubApi, userApi } from "../services/api";
+import { UserIcon } from "../components/icons/Icons";
 
 interface SettingsPageProps {
   user: User | null;
-  providerStatus: ProviderStatusResponse | null;
   onUserUpdated: (user: User) => void;
-  onRefreshProviderStatus: () => Promise<void>;
 }
 
 export const SettingsPage: React.FC<SettingsPageProps> = React.memo(({
   user,
-  providerStatus,
   onUserUpdated,
-  onRefreshProviderStatus,
 }) => {
   const [name, setName] = useState(user?.name || "Developer");
   const [email, setEmail] = useState(user?.email || "");
   const [isUpdatingUser, setIsUpdatingUser] = useState(false);
   const [userMsg, setUserMsg] = useState<string | null>(null);
   const [userMsgType, setUserMsgType] = useState<"success" | "error">("success");
-
-  const [testingProvider, setTestingProvider] = useState<string | null>(null);
-  const [testResult, setTestResult] = useState<ProviderTestResponse | null>(null);
 
   const [avatarUploading, setAvatarUploading] = useState(false);
 
@@ -126,24 +119,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = React.memo(({
     } finally {
       setAvatarUploading(false);
       e.target.value = "";
-    }
-  };
-
-  const handleTestProvider = async (providerName: string) => {
-    setTestingProvider(providerName);
-    setTestResult(null);
-    try {
-      const res = await providerApi.testProvider(providerName);
-      setTestResult(res);
-      await onRefreshProviderStatus();
-    } catch (err: unknown) {
-      setTestResult({
-        provider: providerName,
-        success: false,
-        message: err instanceof Error ? err.message : "Connection failed.",
-      });
-    } finally {
-      setTestingProvider(null);
     }
   };
 
@@ -444,77 +419,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = React.memo(({
         )}
       </div>
 
-      <div className="glass-panel p-6 rounded-2xl space-y-5">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-white/5 text-white">
-            <SettingsIcon className="w-5 h-5" />
-          </div>
-          <div>
-            <h2 className="text-sm font-semibold text-white">AI Inference Engines</h2>
-            <p className="text-xs text-neutral-400">
-              Manage local offline models and high-reasoning cloud inference pipelines
-            </p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {providerStatus?.providers
-            .filter((p) => p.provider !== "ollama")
-            .map((p) => (
-            <div
-              key={p.provider}
-              className="p-4 rounded-xl bg-white/[0.03] border border-white/10 space-y-3"
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-semibold text-white">{p.name}</div>
-                  <div className="text-[10px] text-neutral-500 font-mono">
-                    Type: {p.type === "local" ? "Local Hardware" : "Cloud Hosted"}
-                  </div>
-                </div>
-                <span
-                  className={`text-[10px] px-2 py-0.5 rounded-full font-mono ${
-                    p.is_available
-                      ? "bg-white/15 text-white"
-                      : "bg-neutral-800 text-neutral-400"
-                  }`}
-                >
-                  {p.is_available ? "ONLINE" : "STANDBY"}
-                </span>
-              </div>
-
-              <div className="text-xs text-neutral-400 font-mono space-y-1">
-                <div>
-                  Model: <span className="text-white">{p.current_model}</span>
-                </div>
-                <div className="truncate">
-                  Endpoint: <span className="text-neutral-300">{p.endpoint}</span>
-                </div>
-                {p.note && <div className="text-[11px] text-neutral-500 italic">{p.note}</div>}
-              </div>
-
-              <button
-                onClick={() => handleTestProvider(p.provider)}
-                disabled={testingProvider === p.provider}
-                className="w-full btn-silver text-xs py-1.5 justify-center"
-              >
-                {testingProvider === p.provider ? "Pinging..." : "Test Connectivity & Latency"}
-              </button>
-            </div>
-          ))}
-        </div>
-
-        {testResult && (
-          <div className="p-3.5 rounded-xl bg-white/5 border border-white/15 text-xs font-mono space-y-1">
-            <div className="text-white font-semibold">
-              Test Output ({testResult.provider}): {testResult.message}
-            </div>
-            {testResult.latency_ms !== undefined && testResult.latency_ms !== null && (
-              <div className="text-neutral-400">Measured Latency: {testResult.latency_ms} ms</div>
-            )}
-          </div>
-        )}
-      </div>
     </div>
   );
 });

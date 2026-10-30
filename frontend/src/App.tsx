@@ -1903,17 +1903,12 @@ export const App: React.FC = () => {
               <div className="flex-1 flex flex-col w-full h-full min-h-0 overflow-y-auto overscroll-y-contain">
                 <SettingsPage
                   user={user}
-                  providerStatus={providerStatus}
                   onUserUpdated={(updatedUser) => {
                     setUser(updatedUser);
                     if (updatedUser.github_connected) {
                       fetchPullRequests();
                       fetchOverviewMetrics();
                     }
-                  }}
-                  onRefreshProviderStatus={async () => {
-                    const status = await providerApi.getStatus();
-                    setProviderStatus(status);
                   }}
                 />
               </div>
