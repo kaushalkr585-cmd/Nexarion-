@@ -166,17 +166,17 @@ See [Milestone 9 Documentation](milestone_9.md) for caching architectures, AST s
 ### Milestone Map Overview
 
 ```
-M1  Foundation                   ████████████ DONE
-M2  Models & Parsing             ████████████ DONE
-M3  Deterministic Agents         ████████████ DONE
-M4  Orchestrator                 ████████████ DONE
-M5  LLM Integration              ████████████ DONE
-M6  CLI Interface                ████████████ DONE
-M7  Interactive Web UI & Deploy  ████████████ DONE (NEXARION)
-M8  Advanced Analysis            ████████████ DONE
-M9  Caching & Perf               ████████████ DONE
-M10 Testing, Docker & CI/CD      ████████████ DONE
-M11 GitHub Integration           ████████████ DONE
+M1  Foundation
+M2  Models & Parsing
+M3  Deterministic Agents
+M4  Orchestrator
+M5  LLM Integration
+M6  CLI Interface
+M7  Interactive Web UI & Deploy
+M8  Advanced Analysis
+M9  Caching & Perf
+M10 Testing, Docker & CI/CD
+M11 GitHub Integration
 ```
 
 ---
