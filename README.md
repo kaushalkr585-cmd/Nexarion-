@@ -85,15 +85,15 @@ ruff check src/ tests/
 
 ## Dependencies
 
-| Package | Purpose | License | Cost |
-|---------|---------|---------|------|
-| python-dotenv | Load .env files | MIT | Free |
-| pydantic | Data validation | MIT | Free |
-| pydantic-settings | Config from environment | MIT | Free |
-| unidiff | Parse unified diffs | MIT | Free |
-| pytest | Test runner | MIT | Free |
-| pytest-cov | Test coverage | MIT | Free |
-| ruff | Linter / formatter | MIT | Free |
+| Package | Purpose | Cost |
+|---------|---------|------|
+| python-dotenv | Load .env files | Free |
+| pydantic | Data validation | Free |
+| pydantic-settings | Config from environment | Free |
+| unidiff | Parse unified diffs | Free |
+| pytest | Test runner | Free |
+| pytest-cov | Test coverage | Free |
+| ruff | Linter / formatter | Free |
 
 ## Limitations and Future Work
 
