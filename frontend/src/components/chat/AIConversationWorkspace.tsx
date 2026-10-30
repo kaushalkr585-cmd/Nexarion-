@@ -109,8 +109,6 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
   onNavigateAgents,
   onNavigateHistory,
   onBack,
-  activeProvider,
-  providerStatus,
   isSending,
   setWaveState,
   initialPrompt,
@@ -348,16 +346,9 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
   const prevIsSendingRef = useRef(isSending);
   const prevMessageCountRef = useRef(conversation?.messages?.length || 0);
 
-  const [selectedModel, setSelectedModel] = useState<SelectedModel>(() => {
-    return {
-      provider: "nvidia",
-      model: "nvidia/nemotron-3-ultra-550b-a55b",
-    };
-  });
-
-  const handleSelectModel = (model: SelectedModel) => {
-    setSelectedModel(model);
-    localStorage.setItem("nexarion_selected_model", JSON.stringify(model));
+  const selectedModel: SelectedModel = {
+    provider: "nvidia",
+    model: "nvidia/nemotron-3-ultra-550b-a55b",
   };
 
   const messages: Message[] = conversation?.messages || [];
