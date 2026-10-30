@@ -10,7 +10,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only, selectinload
 
 from code_review.analysis.conversation_memory import ConversationMemoryManager
 from code_review.analysis.document_processor import (
@@ -712,7 +712,34 @@ def get_conversation(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[UserRecord | None, Depends(get_current_user_optional)],
 ) -> ConversationDetailResponse:
-    query = db.query(ConversationRecord).filter(ConversationRecord.id == conversation_id)
+    attachment_fields = (
+        AttachmentRecord.id,
+        AttachmentRecord.filename,
+        AttachmentRecord.file_type,
+        AttachmentRecord.mime_type,
+        AttachmentRecord.file_size,
+        AttachmentRecord.page_count,
+        AttachmentRecord.chunk_count,
+        AttachmentRecord.created_at,
+    )
+    query = (
+        db.query(ConversationRecord)
+        .options(
+            selectinload(ConversationRecord.attachments).load_only(*attachment_fields),
+            selectinload(ConversationRecord.messages)
+            .load_only(
+                MessageRecord.id,
+                MessageRecord.conversation_id,
+                MessageRecord.role,
+                MessageRecord.content,
+                MessageRecord.feedback,
+                MessageRecord.created_at,
+            )
+            .selectinload(MessageRecord.attachments)
+            .load_only(*attachment_fields),
+        )
+        .filter(ConversationRecord.id == conversation_id)
+    )
     if user:
         query = query.filter(ConversationRecord.user_id == user.id)
     else:

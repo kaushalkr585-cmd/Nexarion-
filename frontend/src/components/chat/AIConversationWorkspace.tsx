@@ -45,6 +45,8 @@ function formatBytes(bytes: number): string {
 
 interface AIConversationWorkspaceProps {
   conversation: Conversation | null;
+  isLoadingConversation?: boolean;
+  loadingConversationTitle?: string;
   user?: User | null;
   generationState?: GenerationState;
   generationType?: GenerationType;
@@ -93,6 +95,8 @@ interface AIConversationWorkspaceProps {
 
 export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = React.memo(({
   conversation,
+  isLoadingConversation = false,
+  loadingConversationTitle,
   user,
   generationState = "idle",
   generationType = "chat",
@@ -611,7 +615,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
             </button>
           )}
           <h1 className="text-sm font-medium text-white truncate max-w-md">
-            {conversation?.title || "AI Code Review Workspace"}
+            {conversation?.title || loadingConversationTitle || "AI Code Review Workspace"}
           </h1>
         </div>
 
@@ -673,7 +677,20 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
           onScroll={handleScroll}
           className="flex-1 overflow-y-auto overscroll-y-contain px-3 sm:px-6 md:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6"
         >
-          {messages.length === 0 && !isSending ? (
+          {isLoadingConversation && !conversation ? (
+            <div className="mx-auto flex w-full max-w-2xl flex-col gap-5 pt-6" role="status" aria-live="polite">
+              <span className="sr-only">Loading conversation</span>
+              <div className="flex justify-end">
+                <div className="h-14 w-3/4 animate-pulse rounded-2xl border border-white/10 bg-white/[0.04]" />
+              </div>
+              <div className="flex justify-start">
+                <div className="h-32 w-11/12 animate-pulse rounded-2xl border border-white/10 bg-white/[0.04]" />
+              </div>
+              <div className="flex justify-start">
+                <div className="h-24 w-4/5 animate-pulse rounded-2xl border border-white/10 bg-white/[0.04]" />
+              </div>
+            </div>
+          ) : messages.length === 0 && !isSending ? (
             <div className="h-full flex flex-col items-center justify-center text-center max-w-xl mx-auto py-12 px-4 animate-fade-in">
               <div className="w-12 h-12 shrink-0 rounded-2xl bg-white/5 border border-white/15 flex items-center justify-center mt-3 md:mt-0 mb-6 shadow-lg shadow-black/40">
                 <ChatIcon className="w-6 h-6 text-white" />

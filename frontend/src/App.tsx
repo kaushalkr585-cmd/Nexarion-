@@ -111,6 +111,7 @@ export const App: React.FC = () => {
   }, [activeConversationId]);
 
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
+  const [isLoadingActiveConversation, setIsLoadingActiveConversation] = useState(false);
   const [reviews, setReviews] = useState<Review[]>(() => {
     try {
       const cached = sessionStorage.getItem("nexarion_reviews_cache");
@@ -478,17 +479,20 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (!activeConversationId) {
       setActiveConversation(null);
+      setIsLoadingActiveConversation(false);
       return;
     }
 
     if (skipFetchConversationIdRef.current === activeConversationId) {
 
       skipFetchConversationIdRef.current = null;
+      setIsLoadingActiveConversation(false);
       return;
     }
 
     const requestedId = activeConversationId;
     let isCurrent = true;
+    setIsLoadingActiveConversation(true);
     conversationApi
       .get(requestedId)
       .then((conv) => {
@@ -515,6 +519,11 @@ export const App: React.FC = () => {
       })
       .catch((err) => {
         console.error("Failed to fetch conversation details:", err);
+      })
+      .finally(() => {
+        if (isCurrent && activeConvIdRef.current === requestedId) {
+          setIsLoadingActiveConversation(false);
+        }
       });
 
     return () => {
@@ -1333,6 +1342,7 @@ export const App: React.FC = () => {
     setWaveState("idle");
     setIsMobileNavOpen(false);
     setActiveConversation(null);
+    setIsLoadingActiveConversation(false);
     navigateTo("chat", undefined);
   }, [isSendingMessage, navigateTo]);
 
@@ -1350,6 +1360,8 @@ export const App: React.FC = () => {
         setGenerationState("idle");
         setWaveState("idle");
       }
+      setIsLoadingActiveConversation(true);
+      setActiveConversation(null);
       navigateTo("chat", id);
       const isGeneratingSelectedConversation = activeStreamControllersRef.current.has(id);
       setIsSendingMessage(isGeneratingSelectedConversation);
@@ -1824,6 +1836,10 @@ export const App: React.FC = () => {
             >
               <AIConversationWorkspace
                 conversation={activeConversation}
+                isLoadingConversation={isLoadingActiveConversation}
+                loadingConversationTitle={
+                  conversations.find((item) => item.id === activeConversationId)?.title
+                }
                 user={user}
                 generationState={generationState}
                 generationType={generationType}
