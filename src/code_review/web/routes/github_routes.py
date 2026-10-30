@@ -557,6 +557,8 @@ def review_pull_request(
     user: UserRecord = Depends(get_current_user),
 ) -> ReviewDetailResponse:
     token = _get_active_token(user)
+    user_id = user.id
+    db.rollback()
     service = GitHubService(token)
 
     try:
@@ -602,7 +604,7 @@ def review_pull_request(
     agents_used = [str(getattr(a, "name", "agent")) for a in orchestrator.agents]
 
     review = ReviewRecord(
-        user_id=user.id,
+        user_id=user_id,
         repository_name=repo_name,
         pr_identifier=pr_identifier,
         title=f"GitHub PR #{number}: {pr_title}",

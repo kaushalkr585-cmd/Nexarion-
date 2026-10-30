@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = 60.0
     """Timeout in seconds for LLM review generation requests."""
 
+    llm_file_concurrency: int = 2
+    """Maximum number of changed files sent to the LLM at the same time."""
+
     llm_temperature: float = 0.1
     """Sampling temperature for LLM review (low values yield deterministic outputs)."""
 

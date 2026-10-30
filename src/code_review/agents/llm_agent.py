@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from code_review.agents.base import BaseAgent
+from code_review.config import get_settings
 from code_review.llm.client import (
     OllamaClientError,
     OllamaConnectionError,
@@ -69,17 +71,25 @@ class LLMAgent(BaseAgent):
             )
             return []
 
-        all_findings: list[Finding] = []
-
+        reviewable_files = [diff_file for diff_file in diff_files if diff_file.added_line_numbers]
         for diff_file in diff_files:
             if not diff_file.added_line_numbers:
                 logger.debug("Skipping LLM review for %s: no added lines", diff_file.path)
-                continue
 
-            findings_for_file = self._review_file(diff_file)
-            all_findings.extend(findings_for_file)
+        if not reviewable_files:
+            return []
 
-        return all_findings
+        max_workers = max(1, min(get_settings().llm_file_concurrency, len(reviewable_files)))
+        if max_workers == 1:
+            return [
+                finding
+                for diff_file in reviewable_files
+                for finding in self._review_file(diff_file)
+            ]
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            file_findings = executor.map(self._review_file, reviewable_files)
+            return [finding for findings in file_findings for finding in findings]
 
     def _review_file(self, diff_file: DiffFile) -> list[Finding]:
         prompt_content = format_diff_for_review(diff_file)
