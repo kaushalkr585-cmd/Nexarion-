@@ -620,12 +620,6 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
         </div>
 
         <div className="flex items-center gap-2.5">
-
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-xs font-mono text-neutral-300">
-            <span className="w-2 h-2 rounded-full bg-emerald-400" />
-            <span>Mode: Cloud Inference (Nemotron)</span>
-          </div>
-
           <button
             onClick={handleNewConversationClick}
             className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-neutral-300 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg border border-white/10 transition-colors cursor-pointer"
@@ -672,12 +666,8 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
       </header>
 
       <div className="flex-1 relative min-h-0 overflow-hidden flex flex-col">
-        <div
-          ref={scrollContainerRef}
-          onScroll={handleScroll}
-          className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain overscroll-contain px-3.5 sm:px-6 md:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6"
-        >
-          {isLoadingConversation && !conversation ? (
+        {isLoadingConversation && !conversation ? (
+          <div className="flex-1 min-h-0 overflow-hidden px-3.5 sm:px-6 md:px-8 py-4 sm:py-6 flex flex-col justify-center">
             <div className="mx-auto flex w-full max-w-2xl flex-col gap-5 pt-6" role="status" aria-live="polite">
               <span className="sr-only">Loading conversation</span>
               <div className="flex justify-end">
@@ -690,74 +680,80 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                 <div className="h-24 w-4/5 animate-pulse rounded-2xl border border-white/10 bg-white/[0.04]" />
               </div>
             </div>
-          ) : messages.length === 0 && !isSending ? (
-            <div className="min-h-full md:h-full flex flex-col items-center justify-start md:justify-center text-center max-w-xl mx-auto py-8 md:py-12 px-4 animate-fade-in">
-              <div className="w-14 h-14 shrink-0 rounded-2xl bg-white/5 border border-white/15 flex items-center justify-center mb-6 shadow-lg shadow-black/40">
-                <ChatIcon className="w-7 h-7 text-white" />
-              </div>
-
-              <h2 className="text-2xl md:text-3xl font-semibold text-white tracking-tight mb-3 animate-greeting-heading">
-                {greeting.heading}
-              </h2>
-              <p className="text-sm text-neutral-400 mb-8 max-w-md leading-relaxed animate-greeting-subtitle">
-                {greeting.subtitle}
-              </p>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full animate-greeting-cards">
-                <button
-                  onClick={onNavigatePrs}
-                  className="flex items-start gap-3 p-3.5 text-left rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 hover:border-white/20 transition-all group"
-                >
-                  <div className="p-2 rounded-lg bg-white/5 text-neutral-300 group-hover:text-white transition-colors">
-                    <PrIcon className="w-[18px] h-[18px]" />
-                  </div>
-                  <div>
-                    <div className="text-sm font-semibold text-white mb-0.5">Start a Pull Request Review</div>
-                    <div className="text-xs text-neutral-400">Analyze full PR diff with active agents</div>
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => onStartReview(sampleDiffSnippet)}
-                  className="flex items-start gap-3 p-3.5 text-left rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 hover:border-white/20 transition-all group"
-                >
-                  <div className="p-2 rounded-lg bg-white/5 text-neutral-300 group-hover:text-white transition-colors">
-                    <CodeIcon className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <div className="text-sm font-semibold text-white mb-0.5">Analyze a Code Diff</div>
-                    <div className="text-xs text-neutral-400">Inspect security bypass in sample patch</div>
-                  </div>
-                </button>
-
-                <button
-                  onClick={onNavigateAgents}
-                  className="flex items-start gap-3 p-3.5 text-left rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 hover:border-white/20 transition-all group"
-                >
-                  <div className="p-2 rounded-lg bg-white/5 text-neutral-300 group-hover:text-white transition-colors">
-                    <AgentIcon className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <div className="text-sm font-semibold text-white mb-0.5">Explore Agents</div>
-                    <div className="text-xs text-neutral-400">Security, Quality, Performance & AST</div>
-                  </div>
-                </button>
-
-                <button
-                  onClick={onNavigateHistory}
-                  className="flex items-start gap-3 p-3.5 text-left rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 hover:border-white/20 transition-all group"
-                >
-                  <div className="p-2 rounded-lg bg-white/5 text-neutral-300 group-hover:text-white transition-colors">
-                    <HistoryIcon className="w-[18px] h-[18px]" />
-                  </div>
-                  <div>
-                    <div className="text-sm font-semibold text-white mb-0.5">View Review History</div>
-                    <div className="text-xs text-neutral-400">Inspect past findings & execution metrics</div>
-                  </div>
-                </button>
-              </div>
+          </div>
+        ) : messages.length === 0 && !isSending ? (
+          <div className="flex-1 min-h-0 overflow-hidden flex flex-col items-center justify-center text-center max-w-xl mx-auto py-2 sm:py-6 px-3.5 sm:px-4 animate-fade-in w-full select-none">
+            <div className="w-11 h-11 sm:w-14 sm:h-14 shrink-0 rounded-2xl bg-white/5 border border-white/15 flex items-center justify-center mb-3 sm:mb-5 shadow-lg shadow-black/40">
+              <ChatIcon className="w-5 h-5 sm:w-7 sm:h-7 text-white" />
             </div>
-          ) : (
+
+            <h2 className="text-xl sm:text-2xl md:text-3xl font-semibold text-white tracking-tight mb-1.5 sm:mb-2.5 animate-greeting-heading">
+              {greeting.heading}
+            </h2>
+            <p className="text-xs sm:text-sm text-neutral-400 mb-3.5 sm:mb-6 max-w-md leading-relaxed animate-greeting-subtitle">
+              {greeting.subtitle}
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 w-full animate-greeting-cards">
+              <button
+                onClick={onNavigatePrs}
+                className="flex items-start gap-2.5 sm:gap-3 p-2.5 sm:p-3.5 text-left rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 hover:border-white/20 transition-all group cursor-pointer"
+              >
+                <div className="p-1.5 sm:p-2 rounded-lg bg-white/5 text-neutral-300 group-hover:text-white transition-colors shrink-0">
+                  <PrIcon className="w-4 h-4 sm:w-[18px] sm:h-[18px]" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs sm:text-sm font-semibold text-white mb-0.5 truncate sm:whitespace-normal">Start a Pull Request Review</div>
+                  <div className="text-[11px] sm:text-xs text-neutral-400 truncate sm:whitespace-normal">Analyze full PR diff with active agents</div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => onStartReview(sampleDiffSnippet)}
+                className="flex items-start gap-2.5 sm:gap-3 p-2.5 sm:p-3.5 text-left rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 hover:border-white/20 transition-all group cursor-pointer"
+              >
+                <div className="p-1.5 sm:p-2 rounded-lg bg-white/5 text-neutral-300 group-hover:text-white transition-colors shrink-0">
+                  <CodeIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs sm:text-sm font-semibold text-white mb-0.5 truncate sm:whitespace-normal">Analyze a Code Diff</div>
+                  <div className="text-[11px] sm:text-xs text-neutral-400 truncate sm:whitespace-normal">Inspect security bypass in sample patch</div>
+                </div>
+              </button>
+
+              <button
+                onClick={onNavigateAgents}
+                className="flex items-start gap-2.5 sm:gap-3 p-2.5 sm:p-3.5 text-left rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 hover:border-white/20 transition-all group cursor-pointer"
+              >
+                <div className="p-1.5 sm:p-2 rounded-lg bg-white/5 text-neutral-300 group-hover:text-white transition-colors shrink-0">
+                  <AgentIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs sm:text-sm font-semibold text-white mb-0.5 truncate sm:whitespace-normal">Explore Agents</div>
+                  <div className="text-[11px] sm:text-xs text-neutral-400 truncate sm:whitespace-normal">Security, Quality, Performance & AST</div>
+                </div>
+              </button>
+
+              <button
+                onClick={onNavigateHistory}
+                className="flex items-start gap-2.5 sm:gap-3 p-2.5 sm:p-3.5 text-left rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 hover:border-white/20 transition-all group cursor-pointer"
+              >
+                <div className="p-1.5 sm:p-2 rounded-lg bg-white/5 text-neutral-300 group-hover:text-white transition-colors shrink-0">
+                  <HistoryIcon className="w-4 h-4 sm:w-[18px] sm:h-[18px]" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs sm:text-sm font-semibold text-white mb-0.5 truncate sm:whitespace-normal">View Review History</div>
+                  <div className="text-[11px] sm:text-xs text-neutral-400 truncate sm:whitespace-normal">Inspect past findings & execution metrics</div>
+                </div>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div
+            ref={scrollContainerRef}
+            onScroll={handleScroll}
+            className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain overscroll-contain px-3.5 sm:px-6 md:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6"
+          >
             <div className="space-y-6">
               {messages.map((msg, idx) => {
                 const isUser = msg.role === "user";
@@ -1045,8 +1041,8 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
 
               <div ref={messagesEndRef} />
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {showJumpToLatest && (
           <button
