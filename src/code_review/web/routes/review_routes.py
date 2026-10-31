@@ -6,6 +6,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, joinedload, load_only
 
+from code_review.agents.registry import get_persisted_enabled_agent_ids
 from code_review.config import get_settings
 from code_review.db.database import get_db
 from code_review.db.models import AgentConfigRecord, FindingRecord, ReviewRecord, UserRecord
@@ -37,22 +38,27 @@ def create_review(
 
     start_time = time.perf_counter()
 
-    active_configs = db.query(AgentConfigRecord).filter_by(is_enabled=True).all()
-    enabled_agent_ids = (
-        {c.agent_id for c in active_configs}
-        if active_configs
-        else {"security", "quality", "performance", "documentation"}
-    )
+    persisted_configs = db.query(AgentConfigRecord).all()
+    if persisted_configs:
+        persisted_enabled = {c.agent_id.lower().strip() for c in persisted_configs if c.is_enabled}
+    else:
+        persisted_enabled = get_persisted_enabled_agent_ids(db)
 
-    include_llm = payload.include_llm and (
-        "documentation" in enabled_agent_ids
-        or "test" in enabled_agent_ids
-        or "llm" in enabled_agent_ids
-    )
+    # Backend validation: enforce that disabled agents can NEVER be executed,
+    # even if requested by an outdated client payload
+    if payload.agents is not None:
+        requested = {a.lower().strip() for a in payload.agents}
+        effective_enabled = persisted_enabled & requested
+    else:
+        effective_enabled = persisted_enabled
 
-    include_semantic = ("semantic" in enabled_agent_ids) if active_configs else True
+    include_llm = payload.include_llm and bool(
+        {"documentation", "test", "llm"} & effective_enabled
+    )
+    include_semantic = "semantic" in effective_enabled
 
     orchestrator = ReviewOrchestrator(
+        enabled_agent_ids=effective_enabled,
         include_semantic=include_semantic,
         include_llm=include_llm,
         llm_provider=provider,

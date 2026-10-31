@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from code_review.agents.registry import invalidate_agent_config_cache
 from code_review.db.database import get_db
 from code_review.db.models import AgentConfigRecord
 from code_review.web.schemas import AgentConfigResponse, AgentUpdateRequest
@@ -13,7 +14,7 @@ router = APIRouter(prefix="/agents", tags=["Agents"])
 
 @router.get("", response_model=list[AgentConfigResponse])
 def list_agents(db: Session = Depends(get_db)) -> list[AgentConfigResponse]:
-    configs = db.query(AgentConfigRecord).all()
+    configs = db.query(AgentConfigRecord).order_by(AgentConfigRecord.id.asc()).all()
     return [AgentConfigResponse.model_validate(c) for c in configs]
 
 
@@ -41,5 +42,6 @@ def update_agent(
 
     db.commit()
     db.refresh(config)
+    invalidate_agent_config_cache()
     logger.info("Updated configuration for agent '%s': enabled=%s", agent_id, config.is_enabled)
     return AgentConfigResponse.model_validate(config)

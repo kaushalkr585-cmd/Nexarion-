@@ -132,6 +132,9 @@ export const App: React.FC = () => {
   const [prsError, setPrsError] = useState<string | null>(null);
   const [reviewingPrNumber, setReviewingPrNumber] = useState<string | null>(null);
   const [agents, setAgents] = useState<AgentConfig[]>([]);
+  const [agentToast, setAgentToast] = useState<{ message: string; type: "error" | "success" } | null>(null);
+  const agentToggleSeqRef = useRef<Map<string, number>>(new Map());
+  const agentToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [providerStatus, setProviderStatus] = useState<ProviderStatusResponse | null>(null);
 
   const [isComposerOpen, setIsComposerOpen] = useState(false);
@@ -1571,14 +1574,57 @@ export const App: React.FC = () => {
     fetchDiff();
   };
 
-  const handleToggleAgent = async (agentId: string, isEnabled: boolean) => {
-    try {
-      const updated = await agentApi.toggleAgent(agentId, isEnabled);
-      setAgents((prev) => prev.map((a) => (a.agent_id === agentId ? updated : a)));
-    } catch {
+  const handleToggleAgent = useCallback(
+    async (agentId: string, isEnabled: boolean) => {
+      // 1. Avoid duplicate requests if agent is already in the target state
+      const currentAgent = agents.find((a) => a.agent_id === agentId);
+      if (currentAgent && currentAgent.is_enabled === isEnabled) {
+        return;
+      }
 
-    }
-  };
+      const previousConfirmedState = currentAgent ? currentAgent.is_enabled : !isEnabled;
+
+      // 2. Increment per-agent sequence to prevent race conditions on rapid clicking
+      const nextSeq = (agentToggleSeqRef.current.get(agentId) || 0) + 1;
+      agentToggleSeqRef.current.set(agentId, nextSeq);
+
+      // 3. Optimistic UI update: immediate transition (< 100ms)
+      setAgents((prev) =>
+        prev.map((a) => (a.agent_id === agentId ? { ...a, is_enabled: isEnabled } : a))
+      );
+
+      // 4. Send configuration update to backend asynchronously
+      try {
+        const updated = await agentApi.toggleAgent(agentId, isEnabled);
+        // Only reconcile if this is still the latest user action
+        if (agentToggleSeqRef.current.get(agentId) === nextSeq) {
+          setAgents((prev) =>
+            prev.map((a) => (a.agent_id === agentId ? { ...a, ...updated, is_enabled: updated.is_enabled } : a))
+          );
+        }
+      } catch (err) {
+        // Rollback if this request failed and no newer action was taken
+        if (agentToggleSeqRef.current.get(agentId) === nextSeq) {
+          setAgents((prev) =>
+            prev.map((a) => (a.agent_id === agentId ? { ...a, is_enabled: previousConfirmedState } : a))
+          );
+          const rawMessage = err instanceof Error ? err.message : `Failed to update agent '${agentId}'.`;
+          const safeMessage = sanitizeErrorMessage(rawMessage);
+          setAgentToast({
+            message: `Could not toggle agent: ${safeMessage}`,
+            type: "error",
+          });
+          if (agentToastTimerRef.current) {
+            clearTimeout(agentToastTimerRef.current);
+          }
+          agentToastTimerRef.current = setTimeout(() => {
+            setAgentToast(null);
+          }, 4500);
+        }
+      }
+    },
+    [agents]
+  );
 
   const handleLogout = async () => {
     try {
@@ -2014,6 +2060,24 @@ export const App: React.FC = () => {
       />
 
       <AskNexarionSelectionHandler onAskNexarion={handleAskNexarion} />
+
+      {agentToast && (
+        <div
+          role="alert"
+          className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl bg-neutral-900/95 border border-red-500/40 text-red-200 text-xs sm:text-sm shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-bottom-2 duration-200"
+        >
+          <span className="w-2 h-2 rounded-full bg-red-400 shrink-0" />
+          <span className="font-sans">{agentToast.message}</span>
+          <button
+            type="button"
+            onClick={() => setAgentToast(null)}
+            className="ml-2 text-neutral-400 hover:text-white transition-colors text-base leading-none p-1"
+            aria-label="Dismiss error notification"
+          >
+            &times;
+          </button>
+        </div>
+      )}
     </div>
   );
 };

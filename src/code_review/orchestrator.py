@@ -12,6 +12,11 @@ from code_review.agents.ast_agent import ASTAgent
 from code_review.agents.bandit_agent import BanditAgent
 from code_review.agents.base import BaseAgent
 from code_review.agents.llm_agent import LLMAgent
+from code_review.agents.registry import (
+    build_active_agents,
+    get_agent_identifiers,
+    is_agent_enabled,
+)
 from code_review.agents.ruff_agent import RuffAgent
 from code_review.agents.semantic_agent import SemanticAgent
 from code_review.analysis.ast_hasher import compute_diff_semantic_hash
@@ -28,21 +33,18 @@ logger = logging.getLogger(__name__)
 def default_agents(
     repo_root: Path | None = None,
     *,
+    enabled_agent_ids: set[str] | list[str] | None = None,
     include_semantic: bool = False,
     include_llm: bool = False,
     llm_provider: str | None = None,
 ) -> list[BaseAgent]:
-    kwargs: dict[str, Any] = {"repo_root": repo_root} if repo_root is not None else {}
-    agents: list[BaseAgent] = [
-        ASTAgent(**kwargs),
-        RuffAgent(**kwargs),
-        BanditAgent(**kwargs),
-    ]
-    if include_semantic:
-        agents.append(SemanticAgent(**kwargs))
-    if include_llm:
-        agents.append(LLMAgent(**kwargs, provider=llm_provider))
-    return agents
+    return build_active_agents(
+        enabled_agent_ids=enabled_agent_ids,
+        repo_root=repo_root,
+        llm_provider=llm_provider,
+        include_semantic=include_semantic,
+        include_llm=include_llm,
+    )
 
 
 def default_dedup_key(finding: Finding) -> tuple[str, int, str]:
@@ -101,6 +103,7 @@ class ReviewOrchestrator:
         self,
         agents: list[BaseAgent] | None = None,
         *,
+        enabled_agent_ids: set[str] | list[str] | None = None,
         include_semantic: bool = False,
         include_llm: bool = False,
         llm_provider: str | None = None,
@@ -113,15 +116,24 @@ class ReviewOrchestrator:
         use_semantic_hash: bool = False,
         progress_callback: Callable[[str, str], None] | None = None,
     ) -> None:
-        self._agents: list[BaseAgent] = (
-            default_agents(
+        self._enabled_agent_ids: set[str] | None = (
+            {str(a).lower().strip() for a in enabled_agent_ids}
+            if enabled_agent_ids is not None
+            else None
+        )
+
+        if agents is None:
+            self._agents: list[BaseAgent] = default_agents(
+                enabled_agent_ids=self._enabled_agent_ids,
                 include_semantic=include_semantic,
                 include_llm=include_llm,
                 llm_provider=llm_provider,
             )
-            if agents is None
-            else list(agents)
-        )
+        else:
+            if self._enabled_agent_ids is not None:
+                self._agents = [a for a in agents if self.is_agent_enabled(a)]
+            else:
+                self._agents = list(agents)
 
         self._parallel = parallel
         self._max_workers = max_workers
@@ -133,9 +145,23 @@ class ReviewOrchestrator:
         self._progress_callback = progress_callback
         self._last_errors: dict[str, Exception] = {}
 
+    def is_agent_enabled(self, agent: BaseAgent) -> bool:
+        """Verify whether an agent is allowed to execute under the active configuration snapshot."""
+        return is_agent_enabled(agent, self._enabled_agent_ids)
+
+    @property
+    def enabled_agent_ids(self) -> set[str] | None:
+        """Return a copy of the enabled agent IDs snapshot for this orchestrator instance."""
+        return set(self._enabled_agent_ids) if self._enabled_agent_ids is not None else None
+
     @property
     def agents(self) -> list[BaseAgent]:
-        return list(self._agents)
+        return [a for a in self._agents if self.is_agent_enabled(a)]
+
+    @property
+    def active_agents(self) -> list[BaseAgent]:
+        """Alias for active/enabled agents on this orchestrator instance."""
+        return self.agents
 
     @property
     def parallel(self) -> bool:
@@ -154,6 +180,12 @@ class ReviewOrchestrator:
         return dict(self._last_errors)
 
     def register_agent(self, agent: BaseAgent) -> None:
+        if self._enabled_agent_ids is not None and not self.is_agent_enabled(agent):
+            logger.warning(
+                "Cannot register agent '%s': agent is excluded/disabled by configuration.",
+                agent.name,
+            )
+            return
         if agent not in self._agents:
             self._agents.append(agent)
             logger.debug("Registered agent: %s", agent.name)
@@ -254,10 +286,26 @@ class ReviewOrchestrator:
         bypass_cache: bool = False,
         commit_sha: str | None = None,
     ) -> ReviewResult:
-        active_agents = self._agents if agents is None else list(agents)
+        active_agents = (
+            [a for a in self._agents if self.is_agent_enabled(a)]
+            if agents is None
+            else [a for a in agents if self.is_agent_enabled(a)]
+        )
         is_parallel = self._parallel if parallel is None else parallel
         should_dedup = self._deduplicate if deduplicate is None else deduplicate
         threshold = self._min_severity if min_severity is None else min_severity
+
+        self._last_errors.clear()
+        start_time = time.perf_counter()
+
+        if not active_agents:
+            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+            return ReviewResult(
+                findings=[],
+                files_reviewed=len(diff_files),
+                review_time_ms=elapsed_ms,
+                cached=False,
+            )
 
         cache_key: str | None = None
         if self._cache is not None and self._use_cache and not bypass_cache:
@@ -267,9 +315,6 @@ class ReviewOrchestrator:
             cached_result = self._cache.get(cache_key)
             if cached_result is not None:
                 return cached_result
-
-        self._last_errors.clear()
-        start_time = time.perf_counter()
 
         if is_parallel and len(active_agents) > 1:
             raw_findings, errors = self._run_parallel(active_agents, diff_files)
@@ -347,9 +392,25 @@ class ReviewOrchestrator:
         commit_sha: str | None = None,
         max_concurrency: int | None = None,
     ) -> ReviewResult:
-        active_agents = self._agents if agents is None else list(agents)
+        active_agents = (
+            [a for a in self._agents if self.is_agent_enabled(a)]
+            if agents is None
+            else [a for a in agents if self.is_agent_enabled(a)]
+        )
         should_dedup = self._deduplicate if deduplicate is None else deduplicate
         threshold = self._min_severity if min_severity is None else min_severity
+
+        self._last_errors.clear()
+        start_time = time.perf_counter()
+
+        if not active_agents:
+            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+            return ReviewResult(
+                findings=[],
+                files_reviewed=len(diff_files),
+                review_time_ms=elapsed_ms,
+                cached=False,
+            )
 
         cache_key: str | None = None
         if self._cache is not None and self._use_cache and not bypass_cache:
@@ -359,9 +420,6 @@ class ReviewOrchestrator:
             cached_result = self._cache.get(cache_key)
             if cached_result is not None:
                 return cached_result
-
-        self._last_errors.clear()
-        start_time = time.perf_counter()
 
         raw_findings, errors = await self._run_async(
             active_agents, diff_files, max_concurrency=max_concurrency
@@ -457,6 +515,8 @@ class ReviewOrchestrator:
         errors: dict[str, Exception] = {}
 
         for agent in agents:
+            if not self.is_agent_enabled(agent):
+                continue
             try:
                 agent_findings = agent.review(diff_files)
                 findings.extend(agent_findings)
@@ -482,6 +542,8 @@ class ReviewOrchestrator:
         with concurrent.futures.ThreadPoolExecutor(max_workers=self._max_workers) as executor:
             future_to_agent = {}
             for agent in agents:
+                if not self.is_agent_enabled(agent):
+                    continue
                 if self._progress_callback:
                     self._progress_callback(agent.name, "running")
                 future_to_agent[executor.submit(agent.review, diff_files)] = agent
@@ -521,6 +583,8 @@ class ReviewOrchestrator:
         async def run_single(
             agent: BaseAgent,
         ) -> tuple[str, list[Finding] | None, Exception | None]:
+            if not self.is_agent_enabled(agent):
+                return agent.name, [], None
             try:
                 if sem is not None:
                     async with sem:

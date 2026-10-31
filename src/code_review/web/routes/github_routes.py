@@ -21,6 +21,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from code_review.agents.registry import get_persisted_enabled_agent_ids
 from code_review.config import get_settings
 from code_review.db.database import get_db, get_session_factory
 from code_review.db.models import FindingRecord, ReviewRecord, UserRecord
@@ -121,9 +122,11 @@ def process_github_webhook_pr_review(
         start_time = time.perf_counter()
         provider = settings.llm_provider
         model_name = settings.nvidia_model if provider == "nvidia" else settings.ollama_model
+        enabled_agent_ids = get_persisted_enabled_agent_ids(db)
         orchestrator = ReviewOrchestrator(
-            include_semantic=True,
-            include_llm=True,
+            enabled_agent_ids=enabled_agent_ids,
+            include_semantic="semantic" in enabled_agent_ids,
+            include_llm=bool({"documentation", "test", "llm"} & enabled_agent_ids),
             llm_provider=provider,
             parallel=True,
         )
@@ -557,9 +560,11 @@ def _run_user_pr_review_job(
         provider = settings.llm_provider
         model_name = settings.nvidia_model if provider == "nvidia" else settings.ollama_model
         start_time = time.perf_counter()
+        enabled_agent_ids = get_persisted_enabled_agent_ids(db)
         orchestrator = ReviewOrchestrator(
-            include_semantic=True,
-            include_llm=True,
+            enabled_agent_ids=enabled_agent_ids,
+            include_semantic="semantic" in enabled_agent_ids,
+            include_llm=bool({"documentation", "test", "llm"} & enabled_agent_ids),
             llm_provider=provider,
             parallel=True,
             progress_callback=on_agent_progress,
