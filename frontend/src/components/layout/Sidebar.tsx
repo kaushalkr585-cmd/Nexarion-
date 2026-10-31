@@ -268,7 +268,7 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
     return (
       <div
         key={conv.id}
-        className={`group relative flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
+        className={`group relative flex items-center justify-between px-3 py-2 rounded-xl text-[13px] transition-colors ${
           isActive
             ? "bg-white/12 text-white font-medium shadow-sm"
             : "text-neutral-400 hover:text-neutral-200 hover:bg-white/5"
@@ -315,7 +315,7 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
           title="Conversation options"
           aria-label={`Options for ${conv.title}`}
         >
-          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
             <circle cx="5" cy="12" r="2" />
             <circle cx="12" cy="12" r="2" />
             <circle cx="19" cy="12" r="2" />
@@ -328,6 +328,7 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
   return (
     <>
 
+      {/* Mobile Backdrop */}
       {isMobileOpen && (
         <div
           className="fixed inset-0 bg-black/80 backdrop-blur-sm z-40 md:hidden"
@@ -359,12 +360,12 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
               }}
             >
               <div className="flex items-center gap-2.5">
-                <LogoIcon size={22} />
-                <span className="font-semibold text-sm tracking-wider text-white group-hover:text-neutral-200 transition-colors">
+                <LogoIcon size={25} />
+                <span className="font-semibold text-[15px] tracking-wider text-white group-hover:text-neutral-200 transition-colors">
                   NEXARION
                 </span>
               </div>
-              <span className="block text-[10px] text-neutral-400 uppercase tracking-widest font-mono pl-[32px] mt-0.5 truncate">
+              <span className="block text-[11px] text-neutral-400 uppercase tracking-widest font-mono pl-[35px] mt-0.5 truncate">
                 Code Intelligence
               </span>
             </div>
@@ -378,7 +379,7 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
                 aria-label="Collapse sidebar"
               >
                 <svg
-                  className="w-4 h-4"
+                  className="w-[18px] h-[18px]"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
@@ -416,15 +417,15 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
               className="flex-1 flex items-center justify-center gap-1.5 min-h-[44px] py-2 px-3 text-xs font-medium rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 text-white border border-white/15 transition-all shadow-sm cursor-pointer"
               title="Start a new conversation thread"
             >
-              <PlusIcon className="w-3.5 h-3.5" />
-              <span>New Chat</span>
+              <PlusIcon className="w-4 h-4" />
+              <span className="text-[13px] sm:text-sm font-medium">New Chat</span>
             </button>
             <button
               onClick={() => {
                 onNewReview();
                 if (onCloseMobile) onCloseMobile();
               }}
-              className="flex items-center justify-center gap-1 min-h-[44px] py-2 px-3 text-xs font-medium rounded-xl bg-white/5 hover:bg-white/10 active:bg-white/20 text-neutral-300 hover:text-white border border-white/10 transition-all cursor-pointer"
+              className="flex items-center justify-center gap-1 min-h-[44px] py-2 px-3 text-[13px] sm:text-sm font-medium rounded-xl bg-white/5 hover:bg-white/10 active:bg-white/20 text-neutral-300 hover:text-white border border-white/10 transition-all cursor-pointer"
               title="Review a new code diff"
             >
               <span>+ Review</span>
@@ -444,20 +445,20 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
                     onSelectView(item.id);
                     if (onCloseMobile) onCloseMobile();
                   }}
-                  className={`w-full min-h-[42px] flex items-center gap-3 px-3 py-2 text-xs font-medium rounded-lg transition-colors text-left cursor-pointer ${
+                  className={`w-full min-h-[44px] flex items-center gap-3.5 px-3.5 py-2.5 text-[13px] sm:text-sm font-medium rounded-xl transition-colors text-left cursor-pointer ${
                     isActive
                       ? "bg-white/12 text-white border border-white/20 shadow-sm"
                       : "text-neutral-400 hover:text-neutral-200 hover:bg-white/5"
                   }`}
                 >
-                  <Icon className={`w-4 h-4 ${isActive ? "text-white" : "text-neutral-400"}`} />
+                  <Icon className={`w-[18px] h-[18px] flex-shrink-0 ${isActive ? "text-white" : "text-neutral-400"}`} />
                   <span>{item.label}</span>
                 </button>
               );
             })}
           </nav>
 
-          <div className="flex items-center p-0.5 mb-3 bg-white/[0.04] rounded-lg border border-white/10 text-xs">
+          <div className="flex items-center p-0.5 mb-3 bg-white/[0.04] rounded-lg border border-white/10 text-xs sm:text-[13px]">
             <button
               type="button"
               onClick={() => setShowArchived(false)}
@@ -755,13 +756,13 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
               onOpenSettings();
               if (onCloseMobile) onCloseMobile();
             }}
-            className={`w-full min-h-[44px] flex items-center gap-2.5 px-3 py-2 text-xs font-medium rounded-xl transition-all text-left cursor-pointer ${
+            className={`w-full min-h-[44px] flex items-center gap-3 px-3.5 py-2.5 text-[13px] sm:text-sm font-medium rounded-xl transition-all text-left cursor-pointer ${
               currentView === "settings"
                 ? "bg-white/12 text-white border border-white/20"
                 : "text-neutral-400 hover:text-neutral-200 hover:bg-white/5 active:bg-white/10"
             }`}
           >
-            <SettingsIcon className="w-4 h-4 text-neutral-400" />
+            <SettingsIcon className="w-[18px] h-[18px] text-neutral-400" />
             <span>Settings</span>
           </button>
 
@@ -772,7 +773,7 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
                   <img
                     src={user.avatar_url}
                     alt={user.name}
-                    className="w-7 h-7 rounded-full object-cover border border-white/20 flex-shrink-0"
+                    className="w-8 h-8 rounded-full object-cover border border-white/20 flex-shrink-0"
                     onError={(e) => {
                       (e.currentTarget as HTMLElement).style.display = "none";
                       const fallback = e.currentTarget.parentElement?.querySelector(".avatar-fallback");
@@ -781,15 +782,15 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
                   />
                 ) : null}
                 <div
-                  className={`avatar-fallback w-7 h-7 rounded-full bg-neutral-800 border border-white/20 items-center justify-center text-xs font-semibold text-white flex-shrink-0 ${
+                  className={`avatar-fallback w-8 h-8 rounded-full bg-neutral-800 border border-white/20 items-center justify-center text-xs font-semibold text-white flex-shrink-0 ${
                     user.avatar_url ? "hidden" : "flex"
                   }`}
                 >
                   {user.name ? user.name.charAt(0).toUpperCase() : "U"}
                 </div>
                 <div className="min-w-0">
-                  <div className="text-xs font-medium text-white truncate">{user.name}</div>
-                  <div className="text-[10px] text-neutral-400 font-mono truncate">{user.email}</div>
+                  <div className="text-sm font-semibold text-white truncate">{user.name}</div>
+                  <div className="text-xs text-neutral-400 font-mono truncate">{user.email}</div>
                 </div>
               </div>
               <button
@@ -798,7 +799,7 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
                 title="Log out"
                 aria-label="Log out"
               >
-                <LogoutIcon className="w-3.5 h-3.5" />
+                <LogoutIcon className="w-4 h-4" />
               </button>
             </div>
           ) : (

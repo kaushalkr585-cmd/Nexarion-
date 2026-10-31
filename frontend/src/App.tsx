@@ -967,7 +967,7 @@ export const App: React.FC = () => {
     const targetMsg = activeConversation.messages![msgIndex];
 
     if (targetMsg.role === "assistant") {
-
+      // Regenerate the assistant reply for the conversation context without duplicating user messages
       await handleRegenerateMessage(targetMsg.id);
     } else {
 
@@ -1599,6 +1599,7 @@ export const App: React.FC = () => {
         <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-white/80 to-transparent animate-pulse z-50 pointer-events-none" />
       )}
 
+      {/* Tap-anywhere backdrop to auto-close 3-dots mobile menu */}
       {isMobileMenuOpen && (
         <div
           className="fixed inset-0 z-20 bg-black/25 backdrop-blur-[1px] md:hidden cursor-pointer"
@@ -1608,6 +1609,7 @@ export const App: React.FC = () => {
         />
       )}
 
+      {/* Mobile Header Bar */}
       <header className="md:hidden flex-shrink-0 flex items-center justify-between px-2.5 sm:px-4 py-2 pt-[max(0.625rem,env(safe-area-inset-top))] bg-black/90 backdrop-blur-md border-b border-white/10 z-30">
         <div className="flex items-center gap-1 min-w-0">
           <button
@@ -1635,10 +1637,10 @@ export const App: React.FC = () => {
           <div className="min-w-0 px-1.5 flex flex-col justify-center">
             {currentView === "chat" ? (
               <>
-                <h1 className="text-xs sm:text-sm font-semibold text-white tracking-tight truncate max-w-[150px] xs:max-w-[200px] sm:max-w-xs">
+                <h1 className="text-sm sm:text-base font-semibold text-white tracking-tight truncate max-w-[160px] xs:max-w-[220px] sm:max-w-xs">
                   {activeConversation?.title || "NEXARION"}
                 </h1>
-                <span className="text-[10px] text-neutral-400 font-mono truncate block">
+                <span className="text-[11px] text-neutral-400 font-mono truncate block">
                   {activeConversation
                     ? `${activeConversation.messages?.length || 0} messages`
                     : "Coding Assistant"}
@@ -1653,7 +1655,7 @@ export const App: React.FC = () => {
                     ? "Review History"
                     : currentView}
                 </h1>
-                <span className="text-[10px] text-neutral-400 font-mono truncate block">
+                <span className="text-[11px] text-neutral-400 font-mono truncate block">
                   NEXARION Code Review
                 </span>
               </>
@@ -1669,7 +1671,7 @@ export const App: React.FC = () => {
             title="Start new conversation"
             aria-label="New chat"
           >
-            <PlusIcon className="w-3.5 h-3.5" />
+            <PlusIcon className="w-4 h-4" />
             <span className="hidden xs:inline">Chat</span>
           </button>
 
@@ -1819,7 +1821,7 @@ export const App: React.FC = () => {
                 aria-label="Back"
                 title="Back (Alt + Left Arrow)"
               >
-                <BackIcon className="w-4 h-4" />
+                <BackIcon className="w-[18px] h-[18px]" />
                 <span>Back</span>
               </button>
               <span className="text-xs font-mono text-neutral-400 capitalize">

@@ -598,9 +598,9 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
 +        return True`;
 
   return (
-    <div className="flex flex-col h-full w-full relative z-10 max-w-5xl mx-auto overflow-hidden">
+    <div className="flex flex-col h-full w-full relative z-10 max-w-5xl mx-auto min-h-0 overflow-hidden">
 
-      <header className="hidden md:flex flex-shrink-0 items-center justify-between px-6 py-4 border-b border-white/10 bg-black/60 backdrop-blur-md">
+      <header className="hidden md:flex flex-shrink-0 items-center justify-between px-6 py-4 border-b border-white/10 bg-black/60 backdrop-blur-md z-20">
         <div className="flex items-center gap-3 min-w-0">
           {onBack && (
             <button
@@ -610,19 +610,19 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
               title="Go back"
               aria-label="Go back"
             >
-              <BackIcon className="w-4 h-4" />
+              <BackIcon className="w-[18px] h-[18px]" />
               <span className="hidden sm:inline">Back</span>
             </button>
           )}
-          <h1 className="text-sm font-medium text-white truncate max-w-md">
+          <h1 className="text-[15px] sm:text-base font-semibold text-white tracking-tight truncate max-w-md">
             {conversation?.title || loadingConversationTitle || "AI Code Review Workspace"}
           </h1>
         </div>
 
         <div className="flex items-center gap-2.5">
 
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-[11px] font-mono text-neutral-400">
-            <span className="w-1.5 h-1.5 rounded-full bg-neutral-300" />
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-xs font-mono text-neutral-300">
+            <span className="w-2 h-2 rounded-full bg-emerald-400" />
             <span>Mode: Cloud Inference (Nemotron)</span>
           </div>
 
@@ -631,8 +631,8 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
             className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-neutral-300 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg border border-white/10 transition-colors cursor-pointer"
             title="Start new thread"
           >
-            <PlusIcon className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">New Thread</span>
+            <PlusIcon className="w-4 h-4" />
+            <span className="hidden sm:inline text-xs sm:text-[13px] font-medium">New Thread</span>
           </button>
 
           {conversation && onDeleteConversation && (
@@ -664,7 +664,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                 title="Delete conversation"
                 aria-label="Delete conversation"
               >
-                <CloseIcon className="w-3.5 h-3.5" />
+                <CloseIcon className="w-4 h-4" />
               </button>
             )
           )}
@@ -675,7 +675,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
         <div
           ref={scrollContainerRef}
           onScroll={handleScroll}
-          className="flex-1 overflow-y-auto overscroll-y-contain px-3 sm:px-6 md:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6"
+          className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain overscroll-contain px-3.5 sm:px-6 md:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6"
         >
           {isLoadingConversation && !conversation ? (
             <div className="mx-auto flex w-full max-w-2xl flex-col gap-5 pt-6" role="status" aria-live="polite">
@@ -692,8 +692,8 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
             </div>
           ) : messages.length === 0 && !isSending ? (
             <div className="min-h-full md:h-full flex flex-col items-center justify-start md:justify-center text-center max-w-xl mx-auto py-8 md:py-12 px-4 animate-fade-in">
-              <div className="w-12 h-12 shrink-0 rounded-2xl bg-white/5 border border-white/15 flex items-center justify-center mb-6 shadow-lg shadow-black/40">
-                <ChatIcon className="w-6 h-6 text-white" />
+              <div className="w-14 h-14 shrink-0 rounded-2xl bg-white/5 border border-white/15 flex items-center justify-center mb-6 shadow-lg shadow-black/40">
+                <ChatIcon className="w-7 h-7 text-white" />
               </div>
 
               <h2 className="text-2xl md:text-3xl font-semibold text-white tracking-tight mb-3 animate-greeting-heading">
@@ -709,11 +709,11 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                   className="flex items-start gap-3 p-3.5 text-left rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 hover:border-white/20 transition-all group"
                 >
                   <div className="p-2 rounded-lg bg-white/5 text-neutral-300 group-hover:text-white transition-colors">
-                    <PrIcon className="w-4 h-4" />
+                    <PrIcon className="w-[18px] h-[18px]" />
                   </div>
                   <div>
-                    <div className="text-xs font-semibold text-white mb-0.5">Start a Pull Request Review</div>
-                    <div className="text-[11px] text-neutral-500">Analyze full PR diff with active agents</div>
+                    <div className="text-sm font-semibold text-white mb-0.5">Start a Pull Request Review</div>
+                    <div className="text-xs text-neutral-400">Analyze full PR diff with active agents</div>
                   </div>
                 </button>
 
@@ -725,8 +725,8 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                     <CodeIcon className="w-4 h-4" />
                   </div>
                   <div>
-                    <div className="text-xs font-semibold text-white mb-0.5">Analyze a Code Diff</div>
-                    <div className="text-[11px] text-neutral-500">Inspect security bypass in sample patch</div>
+                    <div className="text-sm font-semibold text-white mb-0.5">Analyze a Code Diff</div>
+                    <div className="text-xs text-neutral-400">Inspect security bypass in sample patch</div>
                   </div>
                 </button>
 
@@ -738,8 +738,8 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                     <AgentIcon className="w-4 h-4" />
                   </div>
                   <div>
-                    <div className="text-xs font-semibold text-white mb-0.5">Explore Agents</div>
-                    <div className="text-[11px] text-neutral-500">Security, Quality, Performance & AST</div>
+                    <div className="text-sm font-semibold text-white mb-0.5">Explore Agents</div>
+                    <div className="text-xs text-neutral-400">Security, Quality, Performance & AST</div>
                   </div>
                 </button>
 
@@ -748,11 +748,11 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                   className="flex items-start gap-3 p-3.5 text-left rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 hover:border-white/20 transition-all group"
                 >
                   <div className="p-2 rounded-lg bg-white/5 text-neutral-300 group-hover:text-white transition-colors">
-                    <HistoryIcon className="w-4 h-4" />
+                    <HistoryIcon className="w-[18px] h-[18px]" />
                   </div>
                   <div>
-                    <div className="text-xs font-semibold text-white mb-0.5">View Review History</div>
-                    <div className="text-[11px] text-neutral-500">Inspect past findings & execution metrics</div>
+                    <div className="text-sm font-semibold text-white mb-0.5">View Review History</div>
+                    <div className="text-xs text-neutral-400">Inspect past findings & execution metrics</div>
                   </div>
                 </button>
               </div>
@@ -849,7 +849,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                       className="group flex flex-col items-end gap-1 animate-fade-in scroll-mt-6"
                     >
                       <div
-                        className={`max-w-[88%] sm:max-w-2xl px-3.5 py-2.5 sm:px-4 sm:py-3 rounded-2xl text-xs sm:text-sm leading-relaxed ${
+                        className={`max-w-[88%] sm:max-w-2xl px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl text-sm sm:text-[15px] leading-relaxed ${
                           msg.status === "error"
                             ? "bg-red-950/20 text-white border border-red-500/40"
                             : "bg-white/10 text-white border border-white/20"
@@ -865,13 +865,13 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                               >
                                 <div className="flex items-center gap-2.5 min-w-0">
                                   <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400 flex-shrink-0">
-                                    <DiffIcon className="w-4 h-4" />
+                                    <DiffIcon className="w-5 h-5" />
                                   </div>
                                   <div className="min-w-0">
-                                    <div className="text-xs font-mono font-semibold text-white truncate max-w-[180px] sm:max-w-xs">
+                                    <div className="text-sm font-mono font-semibold text-white truncate max-w-[180px] sm:max-w-xs">
                                       {att.filename}
                                     </div>
-                                    <div className="text-[10px] text-neutral-400 font-mono">
+                                    <div className="text-xs text-neutral-400 font-mono">
                                       Unified diff • {formatBytes(att.file_size)}
                                     </div>
                                   </div>
@@ -883,7 +883,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                                     className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-mono transition-colors cursor-pointer"
                                     title="Open diff preview"
                                   >
-                                    <EyeIcon className="w-3.5 h-3.5 text-neutral-300" />
+                                    <EyeIcon className="w-4 h-4 text-neutral-300" />
                                     <span>View diff</span>
                                   </button>
                                   <button
@@ -892,7 +892,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                                     className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white text-xs font-mono transition-colors cursor-pointer"
                                     title="Download diff file"
                                   >
-                                    <DownloadIcon className="w-3.5 h-3.5" />
+                                    <DownloadIcon className="w-4 h-4" />
                                     <span>Download</span>
                                   </button>
                                 </div>
@@ -907,7 +907,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                               <div
                                 key={att.id}
                                 onClick={() => setPreviewAttachment(att)}
-                                className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-black/40 hover:bg-black/60 border border-white/15 hover:border-white/30 text-xs text-neutral-200 select-none shadow-sm cursor-pointer transition-colors"
+                                className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-black/40 hover:bg-black/60 border border-white/15 hover:border-white/30 text-[13px] text-neutral-200 select-none shadow-sm cursor-pointer transition-colors"
                                 title={`Click to preview ${att.filename}`}
                               >
                                 {att.file_type === "pdf" ? (
@@ -920,7 +920,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                                 <span className="font-mono truncate max-w-[140px] sm:max-w-[200px]">
                                   {att.filename}
                                 </span>
-                                <span className="text-[10px] text-neutral-400 font-mono">
+                                <span className="text-xs text-neutral-400 font-mono">
                                   {formatBytes(att.file_size)}
                                 </span>
                                 <button
@@ -939,8 +939,8 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                           </div>
                         )}
 
-                        <div className="whitespace-pre-wrap font-sans select-text">{msg.content}</div>
-                        <div className="mt-1.5 flex items-center justify-end gap-2 text-[10px] text-neutral-400 font-mono select-none">
+                        <div className="whitespace-pre-wrap font-sans select-text text-sm sm:text-[15px] leading-relaxed">{msg.content}</div>
+                        <div className="mt-1.5 flex items-center justify-end gap-2 text-xs text-neutral-400 font-mono select-none">
                           {msg.status === "sending" && (
                             <span className="flex items-center gap-1 text-neutral-400">
                               <span className="w-1.5 h-1.5 rounded-full bg-white/60 animate-pulse" />
@@ -967,11 +967,11 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                               setEditingContent(msg.content);
                               setEditError(null);
                             }}
-                            className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                             title={isSending ? "Cannot edit while response is generating" : "Edit this prompt"}
                             aria-label="Edit message"
                           >
-                            <EditIcon className="w-3 h-3" />
+                            <EditIcon className="w-3.5 h-3.5" />
                             <span>Edit</span>
                           </button>
                         )}
@@ -986,10 +986,10 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
 
                             }
                           }}
-                          className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                          className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
                           title="Copy prompt"
                         >
-                          <CopyIcon className="w-3 h-3" />
+                          <CopyIcon className="w-3.5 h-3.5" />
                           <span>{copiedMsgId === msg.id ? "Copied" : "Copy"}</span>
                         </button>
                       </div>
@@ -1053,12 +1053,12 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
             id="jump-to-latest-btn"
             type="button"
             onClick={handleJumpToLatest}
-            className="absolute bottom-3 right-4 sm:bottom-4 sm:right-6 z-30 flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-1.5 min-h-[38px] rounded-full bg-neutral-900/95 hover:bg-neutral-800 text-white border border-white/20 shadow-2xl text-xs font-mono backdrop-blur-md transition-all animate-fade-in group cursor-pointer"
+            className="absolute bottom-3 right-4 sm:bottom-4 sm:right-6 z-30 flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-1.5 min-h-[38px] rounded-full bg-neutral-900/95 hover:bg-neutral-800 text-white border border-white/20 shadow-2xl text-xs sm:text-[13px] font-mono backdrop-blur-md transition-all animate-fade-in group cursor-pointer"
             aria-label="Jump to latest message"
           >
             <span>Jump to latest</span>
             <svg
-              className="w-3.5 h-3.5 text-neutral-400 group-hover:text-white transition-colors"
+              className="w-4 h-4 text-neutral-400 group-hover:text-white transition-colors"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -1069,12 +1069,12 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
         )}
       </div>
 
-      <div className="flex-shrink-0 p-2.5 sm:p-4 md:px-8 pb-[max(0.625rem,env(safe-area-inset-bottom))] border-t border-white/10 bg-black/85 backdrop-blur-lg">
+      <div className="flex-shrink-0 shrink-0 p-2.5 sm:p-4 md:px-8 pb-[max(0.625rem,env(safe-area-inset-bottom))] border-t border-white/10 bg-black/85 backdrop-blur-lg z-20">
 
         {showDiffInput && (
           <div className="mb-2.5 p-2.5 sm:p-3 rounded-xl bg-neutral-900/80 border border-white/15 animate-fade-in">
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[11px] font-mono text-neutral-400">Attached Diff Context (Unified Diff)</span>
+              <span className="text-xs font-mono text-neutral-400">Attached Diff Context (Unified Diff)</span>
               <button
                 onClick={() => setShowDiffInput(false)}
                 className="text-neutral-500 hover:text-white text-xs p-1"
@@ -1130,13 +1130,13 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                   {att.file_type === "diff" ||
                   att.filename.endsWith(".diff") ||
                   att.filename.endsWith(".patch") ? (
-                    <DiffIcon className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                    <DiffIcon className="w-[18px] h-[18px] text-amber-400 flex-shrink-0" />
                   ) : att.file_type === "pdf" ? (
-                    <FilePdfIcon className="w-4 h-4 text-red-400 flex-shrink-0" />
+                    <FilePdfIcon className="w-[18px] h-[18px] text-red-400 flex-shrink-0" />
                   ) : att.file_type === "code" ? (
-                    <FileCodeIcon className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                    <FileCodeIcon className="w-[18px] h-[18px] text-emerald-400 flex-shrink-0" />
                   ) : (
-                    <FileTextIcon className="w-4 h-4 text-blue-400 flex-shrink-0" />
+                    <FileTextIcon className="w-[18px] h-[18px] text-blue-400 flex-shrink-0" />
                   )}
                   <div className="flex flex-col min-w-0">
                     <span className="truncate max-w-[140px] sm:max-w-[200px] font-medium leading-tight">
@@ -1171,7 +1171,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                     className="p-0.5 text-neutral-400 hover:text-white rounded transition-colors ml-0.5"
                     aria-label={`Remove ${att.filename}`}
                   >
-                    <CloseIcon className="w-3 h-3" />
+                    <CloseIcon className="w-3.5 h-3.5" />
                   </button>
                 </div>
               ))}
@@ -1200,8 +1200,8 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
               }
               rows={1}
               disabled={isSending}
-              className="w-full bg-transparent text-white placeholder-neutral-500 text-xs sm:text-sm px-1 py-1 resize-none focus:outline-none transition-[height] duration-75 overflow-x-hidden leading-relaxed block"
-              style={{ minHeight: "36px", maxHeight: "200px", overflowY: "hidden" }}
+              className="w-full bg-transparent text-white placeholder-neutral-500 text-sm sm:text-[15px] px-1.5 py-1.5 resize-none focus:outline-none transition-[height] duration-75 overflow-x-hidden leading-relaxed block"
+              style={{ minHeight: "40px", maxHeight: "200px", overflowY: "hidden" }}
             />
           </div>
 
@@ -1219,8 +1219,8 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                 title="Attach file (.pdf, .txt, .diff, .patch, code files)"
                 aria-label="Attach file"
               >
-                <PaperclipIcon className="w-4 h-4 sm:w-3.5 sm:h-3.5 flex-shrink-0" />
-                <span className="hidden sm:inline text-[11px] font-mono">
+                <PaperclipIcon className="w-[18px] h-[18px] flex-shrink-0" />
+                <span className="hidden sm:inline text-xs sm:text-[13px] font-mono">
                   {attachments.length > 0 ? `${attachments.length} Attached` : "Attach File"}
                 </span>
               </button>
@@ -1249,8 +1249,8 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                 title="Attach code diff to this query"
                 aria-label="Attach code diff"
               >
-                <CodeIcon className="w-4 h-4 sm:w-3.5 sm:h-3.5 flex-shrink-0" />
-                <span className="hidden sm:inline text-[11px] font-mono">
+                <CodeIcon className="w-[18px] h-[18px] flex-shrink-0" />
+                <span className="hidden sm:inline text-xs sm:text-[13px] font-mono">
                   {diffContext ? "Diff Attached" : "Attach Diff"}
                 </span>
               </button>
@@ -1331,8 +1331,8 @@ const AssistantMessageItem = React.forwardRef<
 
     return (
       <div ref={ref} className="group flex gap-3.5 justify-start animate-fade-in w-full scroll-mt-6">
-        <div className="w-7 h-7 rounded-lg bg-white/10 border border-white/20 flex items-center justify-center flex-shrink-0 mt-0.5 select-none">
-          <span className="text-[10px] font-bold text-white font-mono">NX</span>
+        <div className="w-8 h-8 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center flex-shrink-0 mt-0.5 select-none">
+          <span className="text-xs font-bold text-white font-mono">NX</span>
         </div>
 
         <div className="flex flex-col min-w-0 max-w-[92%] sm:max-w-2xl w-full">
@@ -1346,7 +1346,7 @@ const AssistantMessageItem = React.forwardRef<
           ) : (
             <div
               ref={contentRef}
-              className={`chat-message-content select-text px-3.5 py-2.5 sm:px-4 sm:py-3 rounded-2xl text-xs sm:text-sm leading-relaxed backdrop-blur-md shadow-sm rounded-tl-sm ${
+              className={`chat-message-content select-text px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl text-sm sm:text-[15px] leading-relaxed backdrop-blur-md shadow-sm rounded-tl-sm ${
                 isError
                   ? "bg-red-950/20 text-neutral-200 border border-red-500/30"
                   : "bg-black/60 text-neutral-200 border border-white/10"
@@ -1387,7 +1387,7 @@ const AssistantMessageItem = React.forwardRef<
                 </div>
               )}
 
-              <div className="mt-2 flex items-center justify-between text-[10px] text-neutral-500 font-mono select-none">
+              <div className="mt-2 flex items-center justify-between text-xs text-neutral-400 font-mono select-none">
                 {isStreaming ? (
                   <span className="flex items-center gap-1.5 text-neutral-400">
                     <span className="w-1.5 h-1.5 rounded-full bg-white/70 animate-pulse" />

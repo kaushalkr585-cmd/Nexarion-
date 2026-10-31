@@ -374,7 +374,9 @@ html, body {
   min-width: 0;
 }
 
-.overscroll-y-contain {
+.overscroll-y-contain,
+.overscroll-contain {
+  overscroll-behavior: contain;
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
 }

@@ -33,7 +33,7 @@ export const CodeBlock: React.FC<{ language: string; code: string }> = ({ langua
   return (
     <div className="my-3 rounded-xl overflow-hidden border border-white/15 bg-black/90 font-mono text-xs shadow-md w-full max-w-full">
 
-      <div className="flex items-center justify-between px-3.5 py-1.5 bg-white/[0.04] border-b border-white/10 text-neutral-400 text-[11px]">
+      <div className="flex items-center justify-between px-4 py-2 bg-white/[0.04] border-b border-white/10 text-neutral-300 text-xs">
         <span className="font-semibold tracking-wider uppercase text-neutral-300">
           {language || "code"}
         </span>
@@ -49,19 +49,19 @@ export const CodeBlock: React.FC<{ language: string; code: string }> = ({ langua
         >
           {copied ? (
             <>
-              <CheckIcon className="w-3 h-3 text-emerald-400" />
+              <CheckIcon className="w-3.5 h-3.5 text-emerald-400" />
               <span>Copied</span>
             </>
           ) : (
             <>
-              <CopyIcon className="w-3 h-3" />
+              <CopyIcon className="w-3.5 h-3.5" />
               <span>Copy code</span>
             </>
           )}
         </button>
       </div>
 
-      <pre className="p-3.5 overflow-x-auto overscroll-x-contain text-neutral-200 leading-relaxed font-mono select-text cursor-text max-w-full">
+      <pre className="p-4 overflow-x-auto overscroll-x-contain text-neutral-200 text-[13px] sm:text-sm leading-relaxed font-mono select-text cursor-text max-w-full">
         <code className="select-text">{code}</code>
       </pre>
     </div>
@@ -80,7 +80,7 @@ export function renderInlineMarkdown(text: string): React.ReactNode[] {
       return (
         <code
           key={i}
-          className="px-1.5 py-0.5 mx-0.5 rounded bg-white/10 text-white font-mono text-[11px] sm:text-xs border border-white/15 select-text"
+          className="px-1.5 py-0.5 mx-0.5 rounded bg-white/10 text-white font-mono text-xs sm:text-[13px] border border-white/15 select-text"
         >
           {token.slice(1, -1)}
         </code>
@@ -150,7 +150,7 @@ function renderTextBlock(block: string, blockKey: number): React.ReactNode {
         }`}
       >
         {items.map((item, idx) => (
-          <li key={idx} className="leading-relaxed select-text">
+          <li key={idx} className="leading-relaxed select-text text-sm sm:text-[15px]">
             {renderInlineMarkdown(item)}
           </li>
         ))}
@@ -172,7 +172,7 @@ function renderTextBlock(block: string, blockKey: number): React.ReactNode {
     if (trimmed.startsWith("### ")) {
       flushList();
       elements.push(
-        <h3 key={`h3-${i}`} className="text-sm font-semibold text-white mt-3 mb-1.5 select-text">
+        <h3 key={`h3-${i}`} className="text-base font-semibold text-white mt-3 mb-1.5 select-text">
           {renderInlineMarkdown(trimmed.slice(4))}
         </h3>
       );
@@ -181,7 +181,7 @@ function renderTextBlock(block: string, blockKey: number): React.ReactNode {
     if (trimmed.startsWith("## ")) {
       flushList();
       elements.push(
-        <h2 key={`h2-${i}`} className="text-base font-semibold text-white mt-4 mb-2 select-text">
+        <h2 key={`h2-${i}`} className="text-lg font-semibold text-white mt-4 mb-2 select-text">
           {renderInlineMarkdown(trimmed.slice(3))}
         </h2>
       );
@@ -190,7 +190,7 @@ function renderTextBlock(block: string, blockKey: number): React.ReactNode {
     if (trimmed.startsWith("# ")) {
       flushList();
       elements.push(
-        <h1 key={`h1-${i}`} className="text-lg font-bold text-white mt-4 mb-2 select-text">
+        <h1 key={`h1-${i}`} className="text-xl font-bold text-white mt-5 mb-2.5 select-text">
           {renderInlineMarkdown(trimmed.slice(2))}
         </h1>
       );
@@ -203,7 +203,7 @@ function renderTextBlock(block: string, blockKey: number): React.ReactNode {
       elements.push(
         <blockquote
           key={`quote-${i}`}
-          className="my-2 pl-3 border-l-2 border-white/30 text-neutral-300 italic select-text"
+          className="my-2 pl-3.5 border-l-2 border-white/30 text-neutral-300 italic select-text text-sm sm:text-[15px]"
         >
           {renderInlineMarkdown(trimmed.slice(2))}
         </blockquote>
@@ -232,7 +232,7 @@ function renderTextBlock(block: string, blockKey: number): React.ReactNode {
     // Regular paragraph line
     flushList();
     elements.push(
-      <p key={`p-${i}`} className="leading-relaxed my-1 select-text">
+      <p key={`p-${i}`} className="leading-relaxed my-1.5 select-text text-sm sm:text-[15px]">
         {renderInlineMarkdown(trimmed)}
       </p>
     );

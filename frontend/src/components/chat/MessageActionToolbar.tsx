@@ -143,7 +143,7 @@ export const MessageActionToolbar: React.FC<MessageActionToolbarProps> = ({
             <span className="text-[10px] font-medium text-emerald-400">Copied</span>
           </>
         ) : (
-          <CopyIcon className="w-3.5 h-3.5" />
+          <CopyIcon className="w-4 h-4" />
         )}
       </button>
 
@@ -152,9 +152,9 @@ export const MessageActionToolbar: React.FC<MessageActionToolbarProps> = ({
         onClick={handleSelectText}
         aria-label="Select text"
         title="Select response text"
-        className="p-1 rounded-md text-neutral-400 hover:text-white hover:bg-white/10 transition-colors"
+        className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors"
       >
-        <SelectTextIcon className="w-3.5 h-3.5" />
+        <SelectTextIcon className="w-4 h-4" />
       </button>
 
       {!isGenerating && (
@@ -163,9 +163,9 @@ export const MessageActionToolbar: React.FC<MessageActionToolbarProps> = ({
           onClick={onRegenerate}
           aria-label="Regenerate response"
           title="Regenerate response"
-          className="p-1 rounded-md text-neutral-400 hover:text-white hover:bg-white/10 transition-colors"
+          className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors"
         >
-          <RegenerateIcon className="w-3.5 h-3.5" />
+          <RegenerateIcon className="w-4 h-4" />
         </button>
       )}
 
@@ -174,13 +174,13 @@ export const MessageActionToolbar: React.FC<MessageActionToolbarProps> = ({
         onClick={handleGoodFeedback}
         aria-label="Mark helpful"
         title="Good response"
-        className={`p-1 rounded-md transition-colors ${
+        className={`p-1.5 rounded-lg transition-colors ${
           feedback === "helpful"
             ? "text-white bg-white/20 border border-white/30"
             : "text-neutral-400 hover:text-white hover:bg-white/10"
         }`}
       >
-        <ThumbsUpIcon className="w-3.5 h-3.5" filled={feedback === "helpful"} />
+        <ThumbsUpIcon className="w-4 h-4" filled={feedback === "helpful"} />
       </button>
 
       <button
@@ -188,13 +188,13 @@ export const MessageActionToolbar: React.FC<MessageActionToolbarProps> = ({
         onClick={handleBadFeedback}
         aria-label="Mark unhelpful"
         title="Bad response"
-        className={`p-1 rounded-md transition-colors ${
+        className={`p-1.5 rounded-lg transition-colors ${
           feedback === "unhelpful"
             ? "text-white bg-white/20 border border-white/30"
             : "text-neutral-400 hover:text-white hover:bg-white/10"
         }`}
       >
-        <ThumbsDownIcon className="w-3.5 h-3.5" filled={feedback === "unhelpful"} />
+        <ThumbsDownIcon className="w-4 h-4" filled={feedback === "unhelpful"} />
       </button>
 
       <div className="relative" ref={menuRef}>
@@ -205,13 +205,13 @@ export const MessageActionToolbar: React.FC<MessageActionToolbarProps> = ({
           aria-haspopup="menu"
           aria-expanded={isMenuOpen}
           title="More actions"
-          className={`p-1 rounded-md transition-colors ${
+          className={`p-1.5 rounded-lg transition-colors ${
             isMenuOpen
               ? "text-white bg-white/20"
               : "text-neutral-400 hover:text-white hover:bg-white/10"
           }`}
         >
-          <DotsHorizontalIcon className="w-3.5 h-3.5" />
+          <DotsHorizontalIcon className="w-4 h-4" />
         </button>
 
         {isMenuOpen && (
