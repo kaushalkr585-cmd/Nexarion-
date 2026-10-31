@@ -27,7 +27,6 @@ import {
   setToken,
 } from "./services/api";
 
-import { LiquidWaveBackground } from "./components/wave/LiquidWaveBackground";
 import { Sidebar } from "./components/layout/Sidebar";
 import { AIConversationWorkspace } from "./components/chat/AIConversationWorkspace";
 import { OverviewPage } from "./pages/OverviewPage";
@@ -57,7 +56,12 @@ export const App: React.FC = () => {
 
   const [currentView, setCurrentView] = useState<NavView>(initialRoute.view);
   const [navHistory, setNavHistory] = useState<Array<{ view: NavView; conversationId?: string }>>([]);
-  const [waveState, setWaveState] = useState<WaveState>("idle");
+  const setWaveState = useCallback(
+    (_nextState: WaveState | ((current: WaveState) => WaveState)) => {
+      void _nextState;
+    },
+    []
+  );
   const [generationState, setGenerationState] = useState<GenerationState>("idle");
   const [generationType, setGenerationType] = useState<GenerationType>("chat");
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
@@ -1590,8 +1594,6 @@ export const App: React.FC = () => {
 
   return (
     <div className="relative h-[100dvh] w-screen max-w-full bg-black text-white flex flex-col font-sans overflow-hidden">
-
-      <LiquidWaveBackground state={waveState} />
 
       {isAuthChecking && (
         <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-white/80 to-transparent animate-pulse z-50 pointer-events-none" />
