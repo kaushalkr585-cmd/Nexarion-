@@ -182,8 +182,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = React.memo(({
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-8 space-y-8 relative z-10 text-left">
-      <div className="pb-6 border-b border-white/10">
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6 sm:space-y-8 relative z-10 text-left">
+      <div className="pb-5 sm:pb-6 border-b border-white/10">
         <h1 className="text-2xl sm:text-3xl font-semibold text-white tracking-tight">
           System & Account Settings
         </h1>
@@ -202,26 +202,26 @@ export const SettingsPage: React.FC<SettingsPageProps> = React.memo(({
         </div>
       )}
 
-      <div className="glass-panel p-6 rounded-2xl space-y-5">
+      <div className="glass-panel p-5 sm:p-6 rounded-2xl space-y-5">
         <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-white/5 text-white">
+          <div className="p-2 rounded-xl bg-white/5 text-white shrink-0">
             <UserIcon className="w-5 h-5" />
           </div>
-          <div>
+          <div className="min-w-0 flex-1">
             <h2 className="text-sm font-semibold text-white">Developer Profile</h2>
-            <p className="text-xs text-neutral-400">
+            <p className="text-xs text-neutral-400 mt-0.5 leading-relaxed">
               Account identity, authentication, and profile image
             </p>
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6 pb-4 border-b border-white/10">
-          <div className="relative">
+        <div className="flex items-center gap-4 sm:gap-6 pb-4 border-b border-white/10">
+          <div className="relative shrink-0">
             {user?.avatar_url ? (
               <img
                 src={user.avatar_url}
                 alt={user.name}
-                className="w-16 h-16 rounded-full object-cover border-2 border-white/20"
+                className="w-14 h-14 sm:w-16 sm:h-16 rounded-full object-cover border-2 border-white/20"
                 onError={(e) => {
                   (e.currentTarget as HTMLElement).style.display = "none";
                   const fallback = e.currentTarget.parentElement?.querySelector(".avatar-fallback");
@@ -230,7 +230,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = React.memo(({
               />
             ) : null}
             <div
-              className={`avatar-fallback w-16 h-16 rounded-full bg-neutral-800 border-2 border-white/20 items-center justify-center text-lg font-bold text-white ${
+              className={`avatar-fallback w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-neutral-800 border-2 border-white/20 items-center justify-center text-lg font-bold text-white ${
                 user?.avatar_url ? "hidden" : "flex"
               }`}
             >
@@ -238,8 +238,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = React.memo(({
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <label className="btn-silver text-xs py-1.5 px-3 cursor-pointer inline-flex items-center">
+          <div className="space-y-1.5 min-w-0 flex-1">
+            <label className="btn-silver text-xs py-2 px-3.5 cursor-pointer inline-flex items-center justify-center font-medium">
               <span>{avatarUploading ? "Uploading..." : "Change Avatar"}</span>
               <input
                 type="file"
@@ -285,38 +285,37 @@ export const SettingsPage: React.FC<SettingsPageProps> = React.memo(({
           <button
             type="submit"
             disabled={isUpdatingUser}
-            className="btn-silver text-xs py-2 px-4"
+            className="w-full sm:w-auto btn-silver text-xs py-2 px-5 inline-flex items-center justify-center font-medium"
           >
             {isUpdatingUser ? "Saving..." : "Save Profile"}
           </button>
         </form>
       </div>
 
-      <div className="glass-panel p-6 rounded-2xl space-y-5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-6">
-          <div className="flex items-start sm:items-center gap-3 min-w-0 flex-1">
-            <div className="p-2 rounded-xl bg-white/5 text-white shrink-0">
-              <svg className="w-5 h-5" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
-              </svg>
-            </div>
-            <div className="min-w-0 flex-1">
-              <h2 className="text-sm font-semibold text-white">GitHub Integration</h2>
-              <p className="text-xs text-neutral-400 mt-0.5 leading-relaxed">
-                Connect your GitHub account to review pull requests directly inside NEXARION
-              </p>
-            </div>
+      <div className="glass-panel p-5 sm:p-6 rounded-2xl space-y-5">
+        <div className="flex items-start gap-3.5">
+          <div className="p-2.5 rounded-xl bg-white/5 text-white shrink-0 mt-0.5">
+            <svg className="w-5 h-5" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
+            </svg>
           </div>
-
-          <span
-            className={`shrink-0 self-start sm:self-center text-[10px] px-2.5 py-1 rounded-full font-mono uppercase tracking-wider whitespace-nowrap ${
-              ghStatus?.connected
-                ? "bg-white/15 text-white border border-white/20"
-                : "bg-neutral-800 text-neutral-400 border border-neutral-700/50"
-            }`}
-          >
-            {ghStatus?.connected ? "CONNECTED" : "DISCONNECTED"}
-          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-2.5 flex-wrap">
+              <h2 className="text-sm font-semibold text-white">GitHub Integration</h2>
+              <span
+                className={`text-[10px] px-2.5 py-0.5 rounded-full font-mono uppercase tracking-wider shrink-0 ${
+                  ghStatus?.connected
+                    ? "bg-white/15 text-white border border-white/20"
+                    : "bg-neutral-800 text-neutral-400 border border-neutral-700/50"
+                }`}
+              >
+                {ghStatus?.connected ? "CONNECTED" : "DISCONNECTED"}
+              </span>
+            </div>
+            <p className="text-xs text-neutral-400 mt-1 leading-relaxed">
+              Connect your GitHub account to review pull requests directly inside NEXARION
+            </p>
+          </div>
         </div>
 
         {ghActionMsg && (
@@ -330,28 +329,26 @@ export const SettingsPage: React.FC<SettingsPageProps> = React.memo(({
             Loading GitHub connection details...
           </div>
         ) : ghStatus?.connected ? (
-
-          <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10 space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="min-w-0 flex-1">
                 <div className="text-xs font-semibold text-white font-mono">
                   Account: @{ghStatus.username || user?.github_username || "developer"}
                 </div>
-                <div className="text-[11px] text-neutral-400 mt-0.5">
+                <div className="text-[11px] text-neutral-400 mt-1">
                   Repository access: Authorized for pull request diff inspections
                 </div>
               </div>
               <button
                 type="button"
                 onClick={handleDisconnectGitHub}
-                className="shrink-0 self-start sm:self-center py-1.5 px-3 rounded-lg bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-red-400 border border-white/10 text-xs transition-colors"
+                className="w-full sm:w-auto py-2 sm:py-1.5 px-3.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-300 hover:text-red-200 border border-red-500/20 text-xs font-medium transition-colors text-center shrink-0"
               >
                 Disconnect GitHub
               </button>
             </div>
           </div>
         ) : (
-
           <div className="space-y-4">
             <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10 text-xs text-neutral-300 leading-relaxed">
               Authenticate via GitHub OAuth or provide a Personal Access Token with{" "}
@@ -360,27 +357,30 @@ export const SettingsPage: React.FC<SettingsPageProps> = React.memo(({
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-
-              <div className="p-4 rounded-xl bg-white/[0.02] border border-white/10 space-y-3">
-                <div className="text-xs font-semibold text-white">GitHub OAuth Flow</div>
-                <p className="text-[11px] text-neutral-400">
-                  Redirects through the official GitHub authorization screen.
-                </p>
+              <div className="p-4 rounded-xl bg-white/[0.02] border border-white/10 space-y-3 flex flex-col justify-between">
+                <div>
+                  <div className="text-xs font-semibold text-white">GitHub OAuth Flow</div>
+                  <p className="text-[11px] text-neutral-400 mt-1">
+                    Redirects through the official GitHub authorization screen.
+                  </p>
+                </div>
                 <button
                   type="button"
                   onClick={handleConnectGitHubOAuth}
-                  className="w-full btn-silver py-2 text-xs justify-center"
+                  className="w-full btn-silver py-2 text-xs justify-center font-medium mt-3"
                 >
                   Connect via GitHub OAuth
                 </button>
               </div>
 
-              <div className="p-4 rounded-xl bg-white/[0.02] border border-white/10 space-y-3">
-                <div className="text-xs font-semibold text-white">Personal Access Token</div>
-                <p className="text-[11px] text-neutral-400">
-                  Direct token verification via backend. Never stored in frontend code.
-                </p>
-                <form onSubmit={handleConnectGitHubToken} className="space-y-2">
+              <div className="p-4 rounded-xl bg-white/[0.02] border border-white/10 space-y-3 flex flex-col justify-between">
+                <div>
+                  <div className="text-xs font-semibold text-white">Personal Access Token</div>
+                  <p className="text-[11px] text-neutral-400 mt-1">
+                    Direct token verification via backend. Never stored in frontend code.
+                  </p>
+                </div>
+                <form onSubmit={handleConnectGitHubToken} className="space-y-2 mt-3">
                   <input
                     type="password"
                     placeholder="ghp_xxxxxxxxxxxx"
@@ -391,7 +391,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = React.memo(({
                   <button
                     type="submit"
                     disabled={!ghTokenInput.trim() || isConnectingGhToken}
-                    className="w-full btn-silver py-1.5 text-xs justify-center"
+                    className="w-full btn-silver py-1.5 text-xs justify-center font-medium"
                   >
                     {isConnectingGhToken ? "Validating..." : "Connect Token"}
                   </button>
