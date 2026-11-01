@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import type { User } from "../../types";
 import { authApi } from "../../services/api";
-import { CloseIcon, LogoIcon } from "../icons/Icons";
+import { CloseIcon, GoogleIcon, LogoIcon } from "../icons/Icons";
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -139,9 +139,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
         <button
           onClick={handleGoogleLogin}
           type="button"
-          className="w-full flex items-center justify-center gap-2 p-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-white font-medium transition-colors"
+          className="w-full flex items-center justify-center gap-2.5 py-2 px-3 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-white font-medium transition-colors"
         >
-          <span>Continue with Google</span>
+          <GoogleIcon className="w-4 h-4 shrink-0" />
+          <span>{mode === "login" ? "Continue with Google" : "Sign up with Google"}</span>
         </button>
 
         <div className="mt-5 text-center text-xs text-neutral-400">
