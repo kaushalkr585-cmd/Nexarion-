@@ -164,14 +164,18 @@ export const HistoryPage: React.FC<HistoryPageProps> = React.memo(({
                     <span className="text-xs font-mono text-neutral-400 truncate max-w-full">
                       {r.repository_name} • {r.pr_identifier}
                     </span>
-                    <span className="text-xs text-neutral-600 font-mono">•</span>
                     <span
-                      className={`text-[10px] px-2 py-0.5 rounded-full font-mono flex-shrink-0 ${
+                      className={`inline-flex items-center gap-1.5 text-[10px] px-2.5 py-0.5 rounded-full font-mono font-medium tracking-wide whitespace-nowrap shrink-0 ${
                         r.has_critical
-                          ? "bg-red-500/10 text-neutral-200 border border-red-500/30"
-                          : "bg-white/10 text-white"
+                          ? "bg-red-500/10 text-red-300 border border-red-500/30"
+                          : "bg-emerald-500/10 text-emerald-300 border border-emerald-500/30"
                       }`}
                     >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          r.has_critical ? "bg-red-400" : "bg-emerald-400"
+                        }`}
+                      />
                       {r.has_critical ? "CRITICAL RISK" : "CLEAN AUDIT"}
                     </span>
                   </div>

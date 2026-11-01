@@ -33,34 +33,41 @@ export const ReviewDetailModal: React.FC<ReviewDetailModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
       <div className="relative w-full max-w-4xl max-h-[90vh] flex flex-col rounded-2xl bg-[#0F0F0F] border border-white/20 shadow-2xl overflow-hidden">
 
-        <div className="flex items-center justify-between p-6 border-b border-white/10 bg-black/40">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-xs font-mono text-neutral-400">
+        <div className="flex items-start justify-between gap-4 p-4 sm:p-6 border-b border-white/10 bg-black/40">
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-mono text-neutral-400 truncate max-w-[220px] sm:max-w-md">
                 {review.repository_name} • {review.pr_identifier}
               </span>
               <span
-                className={`text-[10px] px-2 py-0.5 rounded-full font-mono ${
+                className={`inline-flex items-center gap-1.5 text-[10px] px-2.5 py-0.5 rounded-full font-mono font-medium tracking-wide whitespace-nowrap shrink-0 ${
                   review.has_critical
-                    ? "bg-red-500/10 text-neutral-200 border border-red-500/30"
-                    : "bg-white/10 text-white"
+                    ? "bg-red-500/10 text-red-300 border border-red-500/30"
+                    : "bg-emerald-500/10 text-emerald-300 border border-emerald-500/30"
                 }`}
               >
-                {review.has_critical ? "CRITICAL RISKS DETECTED" : "PASS WITH ADVISORIES"}
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    review.has_critical ? "bg-red-400" : "bg-emerald-400"
+                  }`}
+                />
+                {review.has_critical ? "CRITICAL RISK" : "CLEAN AUDIT"}
               </span>
             </div>
-            <h2 className="text-lg font-semibold text-white">{review.title}</h2>
+            <h2 className="text-base sm:text-lg font-semibold text-white break-words leading-snug">
+              {review.title}
+            </h2>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors"
+            className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors shrink-0 -mr-1 -mt-1 sm:mr-0 sm:mt-0"
             aria-label="Close modal"
           >
             <CloseIcon className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="grid grid-cols-4 gap-4 px-6 py-3 border-b border-white/10 bg-neutral-900/40 text-xs font-mono">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 px-4 sm:px-6 py-3 border-b border-white/10 bg-neutral-900/40 text-xs font-mono">
           <div>
             <span className="text-neutral-500 block">Total Findings</span>
             <span className="text-white font-semibold text-sm">{review.finding_count}</span>
@@ -83,15 +90,17 @@ export const ReviewDetailModal: React.FC<ReviewDetailModalProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 px-6 py-2.5 border-b border-white/10 bg-black/20 text-xs font-mono">
-          <span className="text-neutral-500 mr-2">Filter Findings:</span>
+        <div className="flex items-center gap-2 px-4 sm:px-6 py-2.5 border-b border-white/10 bg-black/20 text-xs font-mono overflow-x-auto no-scrollbar">
+          <span className="text-neutral-500 mr-2 shrink-0">Filter Findings:</span>
           {["ALL", "CRITICAL", "SECURITY", "QUALITY"].map((filter) => (
             <button
               key={filter}
               onClick={() => setActiveFilter(filter)}
-              className={`px-2.5 py-1 rounded-md text-[11px] transition-colors ${
+              className={`px-2.5 py-1 rounded-md text-[11px] font-mono whitespace-nowrap shrink-0 transition-colors ${
                 activeFilter === filter
-                  ? "bg-white/20 text-white font-semibold"
+                  ? filter === "CRITICAL"
+                    ? "bg-red-500/20 text-red-200 font-semibold border border-red-500/30"
+                    : "bg-white/20 text-white font-semibold"
                   : "text-neutral-400 hover:text-white hover:bg-white/5"
               }`}
             >
@@ -100,7 +109,7 @@ export const ReviewDetailModal: React.FC<ReviewDetailModalProps> = ({
           ))}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
           {isLoadingDetails && (
             <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs text-neutral-300">
               <div className="w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin flex-shrink-0" />
@@ -133,7 +142,13 @@ export const ReviewDetailModal: React.FC<ReviewDetailModalProps> = ({
               >
                 <div className="flex items-center justify-between text-xs font-mono">
                   <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded bg-white/10 text-white font-semibold text-[10px]">
+                    <span
+                      className={`px-2 py-0.5 rounded font-mono font-semibold text-[10px] shrink-0 ${
+                        finding.severity === "CRITICAL"
+                          ? "bg-red-500/15 text-red-300 border border-red-500/30"
+                          : "bg-white/10 text-white"
+                      }`}
+                    >
                       {finding.severity}
                     </span>
                     <span className="text-neutral-400">{finding.file_path}:{finding.line_start}</span>
