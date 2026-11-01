@@ -48,7 +48,7 @@ def get_llm_client(
     timeout_val = timeout if timeout is not None else settings.llm_timeout_seconds
     temp_val = temperature if temperature is not None else settings.llm_temperature
 
-    if active_provider == "nvidia":
+    if active_provider in ("nvidia", "llm"):
         key = api_key or settings.nvidia_api_key
         url = base_url or settings.nvidia_base_url
         mdl = model or settings.nvidia_model

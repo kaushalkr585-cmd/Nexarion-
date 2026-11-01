@@ -80,7 +80,7 @@ def test_list_providers_endpoint(client: TestClient) -> None:
     assert "providers" in data
     providers = {p["provider"]: p for p in data["providers"]}
     assert "ollama" in providers
-    assert "nvidia" in providers
+    assert "llm" in providers or "nvidia" in providers
 
 
 def test_list_agents_endpoint(client: TestClient) -> None:

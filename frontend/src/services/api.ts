@@ -129,10 +129,10 @@ export function sanitizeErrorMessage(raw: string): string {
 
   const clean = raw
     .replace(/ai model error with provider ['"][^'"]+['"]:\s*/gi, "")
-    .replace(/request to nvidia nim timed out after [0-9\.]+s/gi, "NEXARION couldn't get a response in time. Please try again.")
-    .replace(/nvidia\s*nim/gi, "AI Service")
-    .replace(/nvidia/gi, "AI Service")
-    .replace(/nemotron/gi, "AI Model")
+    .replace(/request to (?:nvidia nim|llm) timed out after [0-9\.]+s/gi, "NEXARION couldn't get a response in time. Please try again.")
+    .replace(/nvidia\s*nim/gi, "LLM Service")
+    .replace(/nvidia/gi, "LLM")
+    .replace(/nemotron/gi, "LLM")
     .replace(/ollama/gi, "Local AI Service");
 
   return clean.trim() || "Something went wrong while generating your response. Please try again.";

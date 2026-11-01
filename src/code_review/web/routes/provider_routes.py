@@ -57,13 +57,13 @@ def get_providers_status() -> ProviderStatusResponse:
 
     providers = [
         ProviderStatusItem(
-            provider="nvidia",
-            name="NVIDIA Nemotron (Cloud)",
+            provider="llm",
+            name="LLM (Cloud)",
             is_available=nemotron_ok,
             current_model=settings.nvidia_model,
             endpoint=settings.nvidia_base_url,
             type="cloud",
-            note="High-reasoning cloud inference via NVIDIA NIM"
+            note="High-reasoning cloud inference via LLM"
             if nemotron_ok
             else "API key missing or invalid",
             available_models=nemotron_models,
@@ -81,7 +81,7 @@ def get_providers_status() -> ProviderStatusResponse:
     ]
 
     return ProviderStatusResponse(
-        active_provider="nvidia",
+        active_provider="llm",
         providers=providers,
     )
 
@@ -93,7 +93,7 @@ def test_provider(payload: ProviderTestRequest) -> ProviderTestResponse:
 
     start_time = time.perf_counter()
 
-    if provider == "nvidia":
+    if provider in ("nvidia", "llm"):
         api_key = payload.api_key or settings.nvidia_api_key
         client = NemotronClient(
             api_key=api_key,
@@ -107,21 +107,21 @@ def test_provider(payload: ProviderTestRequest) -> ProviderTestResponse:
             if available:
                 models = client.list_models()
                 return ProviderTestResponse(
-                    provider="nvidia",
+                    provider="llm",
                     success=True,
-                    message=f"Successfully connected to NVIDIA NIM ({latency}ms).",
+                    message=f"Successfully connected to LLM ({latency}ms).",
                     latency_ms=latency,
                     models=models,
                 )
             return ProviderTestResponse(
-                provider="nvidia",
+                provider="llm",
                 success=False,
-                message="NVIDIA NIM endpoint unreachable or API key invalid.",
+                message="LLM endpoint unreachable or API key invalid.",
                 latency_ms=latency,
             )
         except Exception as exc:
             return ProviderTestResponse(
-                provider="nvidia",
+                provider="llm",
                 success=False,
                 message=f"Connection error: {exc}",
             )

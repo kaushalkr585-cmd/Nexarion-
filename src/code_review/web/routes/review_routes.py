@@ -30,11 +30,16 @@ def create_review(
     user: UserRecord | None = Depends(get_current_user_optional),
 ) -> ReviewDetailResponse:
     settings = get_settings()
-    provider = payload.provider.lower().strip()
-    if provider not in ("ollama", "nvidia"):
-        provider = settings.llm_provider
-
-    model_name = settings.nvidia_model if provider == "nvidia" else settings.ollama_model
+    raw_provider = (payload.provider or settings.llm_provider).lower().strip()
+    if raw_provider in ("nvidia", "llm"):
+        provider = "llm"
+        model_name = settings.nvidia_model
+    elif raw_provider == "ollama":
+        provider = "ollama"
+        model_name = settings.ollama_model
+    else:
+        provider = "llm"
+        model_name = settings.nvidia_model
 
     start_time = time.perf_counter()
 
@@ -120,7 +125,7 @@ def create_review(
         repository_name=review.repository_name,
         pr_identifier=review.pr_identifier,
         title=review.title,
-        provider=review.provider,
+        provider="llm" if str(review.provider).lower() in ("nvidia", "llm") else review.provider,
         model_name=review.model_name,
         agents_used=review.agents_used,
         finding_count=review.finding_count,
@@ -175,7 +180,13 @@ def list_reviews(
         query = query.filter(ReviewRecord.repository_name == repository)
 
     reviews = query.limit(50).all()
-    return [ReviewSummaryResponse.model_validate(r) for r in reviews]
+    summaries = []
+    for r in reviews:
+        summary = ReviewSummaryResponse.model_validate(r)
+        if str(summary.provider).lower() in ("nvidia", "llm"):
+            summary.provider = "llm"
+        summaries.append(summary)
+    return summaries
 
 
 @router.get("/{review_id}", response_model=ReviewDetailResponse)
@@ -206,7 +217,7 @@ def get_review(
         repository_name=review.repository_name,
         pr_identifier=review.pr_identifier,
         title=review.title,
-        provider=review.provider,
+        provider="llm" if str(review.provider).lower() in ("nvidia", "llm") else review.provider,
         model_name=review.model_name,
         agents_used=review.agents_used,
         finding_count=review.finding_count,

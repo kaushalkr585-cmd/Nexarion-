@@ -152,6 +152,7 @@ def test_scenario_b_disabled_agent_never_executes(
     )
     assert review_resp.status_code == 200, review_resp.text
     review_data = review_resp.json()
+    assert review_data["provider"] == "llm"
 
     # 4. Verify Bandit was NOT used in review
     assert "bandit" not in review_data["agents_used"]
@@ -188,6 +189,7 @@ def test_scenario_c_enabled_agent_executes(client: TestClient, auth_headers: dic
     )
     assert review_resp.status_code == 200
     review_data = review_resp.json()
+    assert review_data["provider"] == "llm"
 
     # Bandit should be in agents_used
     assert "bandit" in review_data["agents_used"]

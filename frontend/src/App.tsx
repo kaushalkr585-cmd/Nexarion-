@@ -1902,7 +1902,11 @@ export const App: React.FC = () => {
                 onNavigateAgents={() => handleSelectView("agents")}
                 onNavigateHistory={() => handleSelectView("history")}
                 onBack={canGoBack ? handleGoBack : undefined}
-                activeProvider={providerStatus?.active_provider || "nvidia"}
+                activeProvider={
+                  providerStatus?.active_provider === "nvidia"
+                    ? "llm"
+                    : providerStatus?.active_provider || "llm"
+                }
                 providerStatus={providerStatus}
                 isSending={isSendingMessage}
                 setWaveState={setWaveState}

@@ -2,13 +2,13 @@ import React, { useEffect, useRef, useState } from "react";
 import type { ProviderStatusResponse } from "../../types";
 
 export interface SelectedModel {
-  provider: "ollama" | "nvidia";
+  provider: "ollama" | "nvidia" | "llm";
   model?: string;
 }
 
 export interface ModelOption {
-  id: "ollama" | "nvidia";
-  provider: "ollama" | "nvidia";
+  id: "ollama" | "nvidia" | "llm";
+  provider: "ollama" | "nvidia" | "llm";
   displayName: string;
   providerBadge: string;
   roleDescription: string;
@@ -33,7 +33,9 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const ollamaProvider = providerStatus?.providers.find((p) => p.provider === "ollama");
-  const nvidiaProvider = providerStatus?.providers.find((p) => p.provider === "nvidia");
+  const llmProvider = providerStatus?.providers.find(
+    (p) => p.provider === "llm" || p.provider === "nvidia"
+  );
 
   const modelOptions: ModelOption[] = [
     {
@@ -48,20 +50,24 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
         : "Offline — Ollama server not detected on localhost:11434",
     },
     {
-      id: "nvidia",
-      provider: "nvidia",
-      displayName: "Nemotron",
+      id: "llm",
+      provider: "llm",
+      displayName: "LLM",
       providerBadge: "Cloud",
       roleDescription: "Hosted model — runs through the configured cloud inference service.",
-      isAvailable: nvidiaProvider?.is_available ?? false,
-      statusNote: (nvidiaProvider?.is_available ?? false)
+      isAvailable: llmProvider?.is_available ?? false,
+      statusNote: (llmProvider?.is_available ?? false)
         ? "Online"
         : "Offline — API key missing or endpoint unreachable",
     },
   ];
 
   const activeOption =
-    modelOptions.find((opt) => opt.provider === selectedModel.provider) || modelOptions[0];
+    modelOptions.find(
+      (opt) =>
+        opt.provider === selectedModel.provider ||
+        (selectedModel.provider === "nvidia" && opt.provider === "llm")
+    ) || modelOptions[0];
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {

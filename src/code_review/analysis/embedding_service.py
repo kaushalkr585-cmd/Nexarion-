@@ -59,7 +59,7 @@ class EmbeddingService:
         effective_provider = self._resolve_provider()
 
         embedding: list[float] | None = None
-        if effective_provider == "nvidia":
+        if effective_provider in ("nvidia", "llm"):
             embedding = self._embed_nvidia(clean_text)
         elif effective_provider == "ollama":
             embedding = self._embed_ollama(clean_text)
@@ -72,11 +72,11 @@ class EmbeddingService:
         return embedding
 
     def _resolve_provider(self) -> str:
-        if self.provider in ("ollama", "nvidia"):
-            return self.provider
+        if self.provider in ("ollama", "nvidia", "llm"):
+            return "nvidia" if self.provider == "llm" else self.provider
 
-        active_llm_provider = (self.settings.llm_provider or "ollama").lower().strip()
-        if active_llm_provider == "nvidia" and self.settings.nvidia_api_key:
+        active_llm_provider = (self.settings.llm_provider or "llm").lower().strip()
+        if active_llm_provider in ("nvidia", "llm") and self.settings.nvidia_api_key:
             return "nvidia"
         return "ollama"
 

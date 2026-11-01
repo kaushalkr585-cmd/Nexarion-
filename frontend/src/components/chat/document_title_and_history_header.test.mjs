@@ -154,7 +154,7 @@ test("Dynamic Document Title: Modals override tab title appropriately", () => {
         title: "Test PR Review",
         repository_name: "test/repo",
         pr_identifier: "#1",
-        provider: "nvidia",
+        provider: "llm",
         model_name: "nemotron",
         agents_used: ["security"],
         finding_count: 3,

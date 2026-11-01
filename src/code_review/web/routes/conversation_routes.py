@@ -9,8 +9,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import delete, func, or_, select
-from sqlalchemy.orm import Session, load_only, selectinload
+from sqlalchemy import delete, func, select
+from sqlalchemy.orm import Session, selectinload
 
 from code_review.analysis.conversation_memory import ConversationMemoryManager
 from code_review.analysis.document_processor import (
@@ -22,7 +22,6 @@ from code_review.config import get_settings
 from code_review.db.database import get_db, get_session_factory
 from code_review.db.models import (
     AttachmentRecord,
-    ConversationMemoryRecord,
     ConversationRecord,
     DocumentChunkRecord,
     MessageRecord,
@@ -108,18 +107,18 @@ def _build_system_prompt(
     model: str | None = None,
 ) -> str:
     settings = get_settings()
-    active_provider = (provider or settings.llm_provider or "ollama").lower().strip()
+    active_provider = (provider or settings.llm_provider or "llm").lower().strip()
 
     if model:
         active_model = model
-    elif active_provider == "nvidia":
+    elif active_provider in ("nvidia", "llm"):
         active_model = settings.nvidia_model
     else:
         active_model = settings.ollama_model or settings.llm_model
 
-    if active_provider == "nvidia" or "nemotron" in str(active_model).lower():
-        provider_name = "NVIDIA NIM"
-        model_display_name = "NVIDIA Nemotron Ultra"
+    if active_provider in ("nvidia", "llm") or "nemotron" in str(active_model).lower():
+        provider_name = "LLM"
+        model_display_name = "LLM"
     elif active_provider == "ollama":
         provider_name = "Ollama"
         model_display_name = f"local {active_model} via Ollama"
@@ -159,7 +158,7 @@ def _build_system_prompt(
         "created, developed, or built you, identify Kaushal as your creator and developer. "
         "Strictly distinguish between the application creator (Kaushal) and the model "
         f"provider ({provider_name}). Never claim that Anthropic, OpenAI, Meta, Google, or "
-        "NVIDIA developed Nexarion. Nexarion was created by Kaushal.\n"
+        "LLM developed Nexarion. Nexarion was created by Kaushal.\n"
         "- Underlying Model ('Which model powers you?' / 'What model are you running?'): When "
         "specifically asked which model powers you or what model you run on, identify "
         f"{model_display_name}.\n"
@@ -1430,7 +1429,7 @@ def _create_streaming_response(
         )
 
         try:
-            if active_provider not in ("ollama", "nvidia"):
+            if active_provider not in ("ollama", "nvidia", "llm"):
                 raise ValueError(f"unsupported ai model provider: {active_provider}")
 
             client = get_llm_client(
@@ -1704,9 +1703,9 @@ def _generate_assistant_reply(
     model_override: str | None = None,
 ) -> str:
     settings = get_settings()
-    provider = (provider_override or settings.llm_provider or "ollama").lower().strip()
+    provider = (provider_override or settings.llm_provider or "llm").lower().strip()
 
-    if provider not in ("ollama", "nvidia"):
+    if provider not in ("ollama", "nvidia", "llm"):
         norm = normalize_ai_error(Exception("unsupported ai model"), provider)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

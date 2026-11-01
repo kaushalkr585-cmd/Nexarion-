@@ -351,8 +351,8 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
   const prevMessageCountRef = useRef(conversation?.messages?.length || 0);
 
   const selectedModel: SelectedModel = {
-    provider: "nvidia",
-    model: "nvidia/nemotron-3-ultra-550b-a55b",
+    provider: "llm",
+    model: "llm",
   };
 
   const messages: Message[] = conversation?.messages || [];

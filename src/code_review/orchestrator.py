@@ -8,17 +8,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from code_review.agents.ast_agent import ASTAgent
-from code_review.agents.bandit_agent import BanditAgent
 from code_review.agents.base import BaseAgent
-from code_review.agents.llm_agent import LLMAgent
 from code_review.agents.registry import (
     build_active_agents,
-    get_agent_identifiers,
     is_agent_enabled,
 )
-from code_review.agents.ruff_agent import RuffAgent
-from code_review.agents.semantic_agent import SemanticAgent
 from code_review.analysis.ast_hasher import compute_diff_semantic_hash
 from code_review.cache.base import BaseCache
 from code_review.cache.keys import compute_cache_key, compute_diff_hash
@@ -146,7 +140,7 @@ class ReviewOrchestrator:
         self._last_errors: dict[str, Exception] = {}
 
     def is_agent_enabled(self, agent: BaseAgent) -> bool:
-        """Verify whether an agent is allowed to execute under the active configuration snapshot."""
+        """Verify whether an agent is allowed under active configuration snapshot."""
         return is_agent_enabled(agent, self._enabled_agent_ids)
 
     @property

@@ -35,7 +35,7 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({ resource, onClose 
             <div>1. AST Agent: Syntactic complexity, nesting depth, and structural anomalies.</div>
             <div>2. Ruff Agent: Fast Python linting and code convention enforcement.</div>
             <div>3. Bandit Agent: AST-based static vulnerability scanning (B101-B703).</div>
-            <div>4. LLM Agent: Semantic logic bug detection via Ollama or NVIDIA NIM.</div>
+            <div>4. LLM Agent: Semantic logic bug detection via Ollama or LLM.</div>
             <div>5. Orchestrator: Deduplication, ranking, and severity sorting.</div>
           </div>
         </div>
@@ -80,7 +80,7 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({ resource, onClose 
             - Offline inference via Ollama runs entirely on your local hardware with no external network telemetry.
           </p>
           <p>
-            - Cloud inference via NVIDIA NIM uses encrypted TLS 1.3 endpoints.
+            - Cloud inference via LLM uses encrypted TLS 1.3 endpoints.
           </p>
         </div>
       ),

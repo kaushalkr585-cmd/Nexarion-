@@ -51,7 +51,7 @@ class ReviewCreateRequest(BaseModel):
     title: str = Field(default="Adhoc Review", max_length=255)
     repository_name: str = Field(default="adhoc-diff", max_length=255)
     pr_identifier: str = Field(default="manual", max_length=100)
-    provider: str = Field(default="nvidia", description="LLM provider: 'nvidia' or 'ollama'")
+    provider: str = Field(default="llm", description="LLM provider: 'llm', 'nvidia', or 'ollama'")
     include_llm: bool = Field(default=True)
     agents: list[str] | None = Field(default=None, description="Subset of agent IDs to run")
 

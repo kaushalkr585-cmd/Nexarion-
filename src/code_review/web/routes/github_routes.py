@@ -120,8 +120,8 @@ def process_github_webhook_pr_review(
         diff_head_sha = head_sha or diff_info.get("head_sha")
 
         start_time = time.perf_counter()
-        provider = settings.llm_provider
-        model_name = settings.nvidia_model if provider == "nvidia" else settings.ollama_model
+        provider = "llm" if settings.llm_provider in ("nvidia", "llm") else settings.llm_provider
+        model_name = settings.nvidia_model if provider == "llm" else settings.ollama_model
         enabled_agent_ids = get_persisted_enabled_agent_ids(db)
         orchestrator = ReviewOrchestrator(
             enabled_agent_ids=enabled_agent_ids,
@@ -557,8 +557,8 @@ def _run_user_pr_review_job(
 
     try:
         settings = get_settings()
-        provider = settings.llm_provider
-        model_name = settings.nvidia_model if provider == "nvidia" else settings.ollama_model
+        provider = "llm" if settings.llm_provider in ("nvidia", "llm") else settings.llm_provider
+        model_name = settings.nvidia_model if provider == "llm" else settings.ollama_model
         start_time = time.perf_counter()
         enabled_agent_ids = get_persisted_enabled_agent_ids(db)
         orchestrator = ReviewOrchestrator(

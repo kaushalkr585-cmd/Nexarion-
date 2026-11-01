@@ -71,7 +71,11 @@ export const ReviewDetailModal: React.FC<ReviewDetailModalProps> = ({
           </div>
           <div>
             <span className="text-neutral-500 block">Active Mode</span>
-            <span className="text-white font-semibold text-sm capitalize">{review.provider}</span>
+            <span className="text-white font-semibold text-sm">
+              {(!review.provider || review.provider.toLowerCase() === "nvidia" || review.provider.toLowerCase() === "llm")
+                ? "llm"
+                : review.provider}
+            </span>
           </div>
           <div>
             <span className="text-neutral-500 block">Agents Coordinated</span>
