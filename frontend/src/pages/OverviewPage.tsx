@@ -1,6 +1,6 @@
 import React from "react";
 import type { OverviewMetrics, Review } from "../types";
-import { AgentIcon, CodeIcon, GithubIcon, HistoryIcon, PrIcon } from "../components/icons/Icons";
+import { AgentIcon, CodeIcon, GithubIcon, HistoryIcon, PrIcon, SecurityIcon } from "../components/icons/Icons";
 
 interface OverviewPageProps {
   metrics: OverviewMetrics | null;
@@ -145,11 +145,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = React.memo(({
             <div className="glass-card p-5 rounded-2xl">
               <div className="flex items-center justify-between text-neutral-400 text-xs font-mono mb-2">
                 <span>SECURITY AUDIT</span>
-                {metrics.critical_findings > 0 ? (
-                  <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
-                ) : (
-                  <span className="w-2 h-2 rounded-full bg-emerald-400/80" />
-                )}
+                <SecurityIcon className="w-4 h-4 text-neutral-400" />
               </div>
               <div className="text-3xl font-semibold text-white tracking-tight">
                 {metrics.critical_findings}
