@@ -18,18 +18,20 @@ const AgentCard: React.FC<AgentCardProps> = React.memo(
         }`}
       >
         <div>
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2.5">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
               <div
-                className={`p-2 rounded-xl transition-colors duration-150 ${
+                className={`p-2 rounded-xl shrink-0 transition-colors duration-150 ${
                   isEnabled ? "bg-emerald-500/10 text-emerald-400" : "bg-white/5 text-neutral-400"
                 }`}
               >
                 <AgentIcon className="w-5 h-5" />
               </div>
-              <div>
-                <h3 className="text-sm sm:text-base font-semibold text-white">{agent.name}</h3>
-                <span className="text-[10px] font-mono text-neutral-400 uppercase tracking-wider">
+              <div className="min-w-0 flex-1">
+                <h3 className="text-sm sm:text-base font-semibold text-white break-words leading-snug">
+                  {agent.name}
+                </h3>
+                <span className="text-[10px] font-mono text-neutral-400 uppercase tracking-wider block">
                   ID: {agent.agent_id}
                 </span>
               </div>
@@ -40,13 +42,13 @@ const AgentCard: React.FC<AgentCardProps> = React.memo(
               role="switch"
               aria-checked={isEnabled}
               onClick={() => onToggle(agent.agent_id, !isEnabled)}
-              className={`w-12 h-6 flex items-center rounded-full p-1 transition-colors duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-emerald-500/40 cursor-pointer ${
+              className={`w-12 h-6 shrink-0 flex items-center rounded-full p-1 transition-colors duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-emerald-500/40 cursor-pointer ${
                 isEnabled ? "bg-emerald-500" : "bg-neutral-800"
               }`}
               aria-label={`Toggle ${agent.name}`}
             >
               <div
-                className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-150 ease-out ${
+                className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-150 ease-out shrink-0 ${
                   isEnabled ? "translate-x-6" : "translate-x-0"
                 }`}
               />
@@ -74,10 +76,10 @@ const AgentCard: React.FC<AgentCardProps> = React.memo(
           </div>
         </div>
 
-        <div className="pt-3 border-t border-white/10 flex items-center justify-between text-[11px] font-mono text-neutral-400">
-          <span className="flex items-center gap-1.5">
+        <div className="pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-neutral-400">
+          <span className="flex items-center gap-1.5 shrink-0">
             <span
-              className={`w-2 h-2 rounded-full transition-colors duration-150 ${
+              className={`w-2 h-2 rounded-full transition-colors duration-150 shrink-0 ${
                 isEnabled
                   ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]"
                   : "bg-neutral-500"
@@ -87,7 +89,7 @@ const AgentCard: React.FC<AgentCardProps> = React.memo(
               Status: {isEnabled ? "Active in Pipeline" : "Disabled (Excluded)"}
             </span>
           </span>
-          <span>Model: {agent.model_name || "default"}</span>
+          <span className="shrink-0">Model: {agent.model_name || "default"}</span>
         </div>
       </div>
     );
