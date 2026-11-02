@@ -113,6 +113,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
   onNavigateAgents,
   onNavigateHistory,
   onBack,
+  activeProvider = "llm",
   isSending,
   setWaveState,
   initialPrompt,
@@ -351,12 +352,11 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
   const prevMessageCountRef = useRef(conversation?.messages?.length || 0);
 
   const selectedModel: SelectedModel = {
-    provider: "llm",
-    model: "llm",
+    provider: (activeProvider as "ollama" | "nvidia" | "llm") || "llm",
+    model: undefined,
   };
 
   const messages: Message[] = conversation?.messages || [];
-  console.log("[DEBUG WORKSPACE] render conversation.id:", conversation?.id, "messages length:", messages.length, "messages:", messages.map(m => ({ id: m.id, role: m.role, status: m.status, len: m.content?.length, content: m.content })));
 
   const adjustTextareaHeight = () => {
     const textarea = textareaRef.current;

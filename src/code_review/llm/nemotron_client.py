@@ -44,7 +44,10 @@ class NemotronClient:
     ) -> None:
         self.api_key = api_key.strip()
         self.base_url = base_url.rstrip("/")
-        self.model = model
+        clean_model = model.strip() if isinstance(model, str) else ""
+        if not clean_model or clean_model.lower() in ("llm", "nvidia", "default", "none"):
+            clean_model = "nvidia/nemotron-3-ultra-550b-a55b"
+        self.model = clean_model
         self.timeout = timeout
         self.temperature = temperature
 

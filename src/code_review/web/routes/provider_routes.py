@@ -95,10 +95,13 @@ def test_provider(payload: ProviderTestRequest) -> ProviderTestResponse:
 
     if provider in ("nvidia", "llm"):
         api_key = payload.api_key or settings.nvidia_api_key
+        clean_model = payload.model.strip() if isinstance(payload.model, str) else None
+        if clean_model and clean_model.lower() in ("llm", "nvidia", "ollama", "default", "none"):
+            clean_model = None
         client = NemotronClient(
             api_key=api_key,
             base_url=settings.nvidia_base_url,
-            model=payload.model or settings.nvidia_model,
+            model=clean_model or settings.nvidia_model,
             timeout=10.0,
         )
         try:

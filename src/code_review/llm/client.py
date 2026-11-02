@@ -35,7 +35,10 @@ class OllamaClient:
         temperature: float = 0.1,
     ) -> None:
         self.base_url = base_url.rstrip("/")
-        self.model = model
+        clean_model = model.strip() if isinstance(model, str) else ""
+        if not clean_model or clean_model.lower() in ("ollama", "default", "none"):
+            clean_model = "qwen2.5-coder:7b"
+        self.model = clean_model
         self.timeout = timeout
         self.temperature = temperature
 

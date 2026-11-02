@@ -659,6 +659,10 @@ export const App: React.FC = () => {
     const abortController = new AbortController();
     activeStreamControllersRef.current.set(streamKey, abortController);
     const targetProvider = provider || providerStatus?.active_provider;
+    const effectiveModel =
+      model && !["llm", "nvidia", "ollama", "default", "none"].includes(model.trim().toLowerCase())
+        ? model.trim()
+        : undefined;
     const attachmentIds = attachments
       ?.map((a) => a.id)
       .filter((id) => Boolean(id) && !id.startsWith("inline-") && !id.startsWith("temp-"));
@@ -670,7 +674,7 @@ export const App: React.FC = () => {
           content,
           diffContext,
           provider: targetProvider,
-          model,
+          model: effectiveModel,
           attachmentIds,
         },
         {
@@ -698,11 +702,13 @@ export const App: React.FC = () => {
               activeConvIdRef.current = metadata.id;
               setGenerationState(isDiffReview ? "reviewing" : "thinking");
               setWaveState(isDiffReview ? "reviewing" : "thinking");
+              if (!targetConvId) {
+                skipFetchConversationIdRef.current = metadata.id;
+              }
               setActiveConversationId(metadata.id);
             }
             if (!targetConvId) {
               if (shouldFocus) {
-                skipFetchConversationIdRef.current = metadata.id;
                 setActiveConversation((prev) => {
                   if (!prev) {
                     return {
@@ -1026,6 +1032,10 @@ export const App: React.FC = () => {
     abortControllerRef.current = abortController;
 
     const targetProvider = provider || providerStatus?.active_provider;
+    const effectiveModel =
+      model && !["llm", "nvidia", "ollama", "default", "none"].includes(model.trim().toLowerCase())
+        ? model.trim()
+        : undefined;
 
     try {
       await conversationApi.streamRegenerate(
@@ -1033,7 +1043,7 @@ export const App: React.FC = () => {
         {
           messageId: targetMsgId,
           provider: targetProvider,
-          model,
+          model: effectiveModel,
           diffContext,
         },
         {
@@ -1204,6 +1214,10 @@ export const App: React.FC = () => {
     abortControllerRef.current = abortController;
 
     const targetProvider = provider || providerStatus?.active_provider;
+    const effectiveModel =
+      model && !["llm", "nvidia", "ollama", "default", "none"].includes(model.trim().toLowerCase())
+        ? model.trim()
+        : undefined;
 
     try {
       await conversationApi.streamEditMessage(
@@ -1213,7 +1227,7 @@ export const App: React.FC = () => {
           content: newContent,
           diffContext,
           provider: targetProvider,
-          model,
+          model: effectiveModel,
           attachmentIds: effectiveAttachmentIds,
         },
         {

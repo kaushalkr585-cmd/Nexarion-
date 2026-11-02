@@ -48,10 +48,14 @@ def get_llm_client(
     timeout_val = timeout if timeout is not None else settings.llm_timeout_seconds
     temp_val = temperature if temperature is not None else settings.llm_temperature
 
+    clean_model = model.strip() if isinstance(model, str) else None
+    if clean_model and clean_model.lower() in ("llm", "nvidia", "ollama", "default", "none"):
+        clean_model = None
+
     if active_provider in ("nvidia", "llm"):
         key = api_key or settings.nvidia_api_key
         url = base_url or settings.nvidia_base_url
-        mdl = model or settings.nvidia_model
+        mdl = clean_model or settings.nvidia_model
         logger.info("Initializing NemotronClient (model: %s, url: %s)", mdl, url)
         return NemotronClient(
             api_key=key,
@@ -62,7 +66,7 @@ def get_llm_client(
         )
 
     url = base_url or settings.ollama_base_url or settings.llm_base_url
-    mdl = model or settings.ollama_model or settings.llm_model
+    mdl = clean_model or settings.ollama_model or settings.llm_model
     logger.info("Initializing OllamaClient (model: %s, url: %s)", mdl, url)
     return OllamaClient(
         base_url=url,

@@ -109,8 +109,12 @@ def _build_system_prompt(
     settings = get_settings()
     active_provider = (provider or settings.llm_provider or "llm").lower().strip()
 
-    if model:
-        active_model = model
+    clean_model = model.strip() if isinstance(model, str) else None
+    if clean_model and clean_model.lower() in ("llm", "nvidia", "ollama", "default", "none"):
+        clean_model = None
+
+    if clean_model:
+        active_model = clean_model
     elif active_provider in ("nvidia", "llm"):
         active_model = settings.nvidia_model
     else:
