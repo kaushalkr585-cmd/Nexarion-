@@ -86,6 +86,7 @@ def benchmark_ollama():
     except Exception as e:
         print(f"[OLLAMA] Error: {e}")
 
+
 if __name__ == "__main__":
     benchmark_nvidia()
     benchmark_ollama()

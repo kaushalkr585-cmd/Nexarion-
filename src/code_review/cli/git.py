@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class GitError(RuntimeError):
-        pass
+    pass
 
 
 def is_git_available() -> bool:

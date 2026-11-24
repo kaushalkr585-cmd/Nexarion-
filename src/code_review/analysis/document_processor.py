@@ -38,15 +38,15 @@ ALLOWED_EXTENSIONS = {".pdf"} | DIFF_EXTENSIONS | CODE_EXTENSIONS | TEXT_EXTENSI
 
 
 class DocumentProcessingError(Exception):
-        pass
+    pass
 
 
 class DocumentValidationError(DocumentProcessingError):
-        pass
+    pass
 
 
 class DocumentExtractionError(DocumentProcessingError):
-        pass
+    pass
 
 
 @dataclass

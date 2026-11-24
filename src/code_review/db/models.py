@@ -75,9 +75,7 @@ class PullRequestRecord(Base):
     source_branch: Mapped[str] = mapped_column(String(255), nullable=False)
     target_branch: Mapped[str] = mapped_column(String(255), nullable=False, default="main")
     author: Mapped[str] = mapped_column(String(255), nullable=False, default="Developer")
-    status: Mapped[str] = mapped_column(
-        String(50), nullable=False, default="open"
-    )
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="open")
     additions: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     deletions: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     changed_files: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
@@ -125,12 +123,8 @@ class FindingRecord(Base):
     agent: Mapped[str] = mapped_column(String(100), nullable=False)
     title: Mapped[str] = mapped_column(String(512), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
-    severity: Mapped[str] = mapped_column(
-        String(50), index=True, nullable=False
-    )
-    category: Mapped[str] = mapped_column(
-        String(50), nullable=False
-    )
+    severity: Mapped[str] = mapped_column(String(50), index=True, nullable=False)
+    category: Mapped[str] = mapped_column(String(50), nullable=False)
     file_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     line_start: Mapped[int] = mapped_column(Integer, nullable=False)
     line_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -178,6 +172,7 @@ class ConversationRecord(Base):
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     section_name: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
+    is_shared: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now, index=True
@@ -246,12 +241,8 @@ class ConversationMemoryRecord(Base):
     source_message_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("messages.id", ondelete="CASCADE"), index=True, nullable=True
     )
-    memory_type: Mapped[str] = mapped_column(
-        String(50), nullable=False, default="message"
-    )
-    role: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="user"
-    )
+    memory_type: Mapped[str] = mapped_column(String(50), nullable=False, default="message")
+    role: Mapped[str] = mapped_column(String(20), nullable=False, default="user")
     content: Mapped[str] = mapped_column(Text, nullable=False)
     embedding: Mapped[list[float] | None] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"), nullable=True

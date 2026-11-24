@@ -247,7 +247,7 @@ def test_scenario_f_single_agent_and_empty_pipeline(
     """
     # 1. Disable all except ruff
     for record in db_session.query(AgentConfigRecord).all():
-        record.is_enabled = (record.agent_id == "ruff")
+        record.is_enabled = record.agent_id == "ruff"
     db_session.commit()
     invalidate_agent_config_cache()
 

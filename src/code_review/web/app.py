@@ -110,4 +110,6 @@ def create_app() -> FastAPI:
             return FileResponse(frontend_dist / "index.html")
 
     return app
+
+
 app = create_app()

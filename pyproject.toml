@@ -91,7 +91,7 @@ skips = ["B101"]
 [tool.ruff]
 line-length = 99
 src = ["src", "tests", "scripts"]
-extend-exclude = ["tests/fixtures", "docs"]
+extend-exclude = ["tests/fixtures", "docs", "scripts/generate_*.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP"]

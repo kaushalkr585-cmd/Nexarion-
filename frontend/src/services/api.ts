@@ -651,6 +651,7 @@ export const conversationApi = {
       title?: string;
       is_pinned?: boolean;
       is_archived?: boolean;
+      is_shared?: boolean;
       section_name?: string | null;
     }
   ): Promise<Conversation> {
@@ -658,6 +659,10 @@ export const conversationApi = {
       method: "PATCH",
       body: JSON.stringify(payload),
     });
+  },
+
+  async share(id: string): Promise<Conversation> {
+    return this.update(id, { is_shared: true });
   },
 
   async delete(id: string): Promise<void> {
@@ -859,21 +864,6 @@ export const reviewApi = {
   }): Promise<Review> {
     return request<Review>("/api/reviews", {
       method: "POST",
-      body: JSON.stringify(payload),
-    });
-  },
-
-  async update(
-    id: string,
-    payload: {
-      title?: string;
-      is_pinned?: boolean;
-      is_archived?: boolean;
-      section_name?: string | null;
-    }
-  ): Promise<Conversation> {
-    return request<Conversation>(`/api/conversations/${id}`, {
-      method: "PATCH",
       body: JSON.stringify(payload),
     });
   },

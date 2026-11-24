@@ -18,19 +18,19 @@ logger = logging.getLogger(__name__)
 
 
 class NemotronClientError(OllamaClientError):
-        pass
+    pass
 
 
 class NemotronConnectionError(OllamaConnectionError, NemotronClientError):
-        pass
+    pass
 
 
 class NemotronTimeoutError(OllamaTimeoutError, NemotronClientError):
-        pass
+    pass
 
 
 class NemotronResponseError(OllamaResponseError, NemotronClientError):
-        pass
+    pass
 
 
 class NemotronClient:

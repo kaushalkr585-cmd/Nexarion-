@@ -13,8 +13,7 @@ logger = logging.getLogger(__name__)
 
 @runtime_checkable
 class LLMClientProtocol(Protocol):
-    def is_available(self) -> bool:
-        ...
+    def is_available(self) -> bool: ...
 
     def chat(
         self,
@@ -22,16 +21,14 @@ class LLMClientProtocol(Protocol):
         *,
         json_format: bool = True,
         temperature: float | None = None,
-    ) -> str:
-        ...
+    ) -> str: ...
 
     def stream_chat(
         self,
         messages: list[dict[str, str]],
         *,
         temperature: float | None = None,
-    ) -> Iterator[str]:
-        ...
+    ) -> Iterator[str]: ...
 
 
 def get_llm_client(

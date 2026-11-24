@@ -108,4 +108,6 @@ class SemanticAgent(BaseAgent):
             len(diff_files),
         )
         return filtered_findings
+
+
 CrossFileAgent = SemanticAgent

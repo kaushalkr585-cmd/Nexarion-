@@ -58,6 +58,7 @@ def test_spa_static_file_serving(tmp_path: Path):
     import unittest.mock
 
     with unittest.mock.patch("code_review.web.app.Path") as mock_path:
+
         def path_side_effect(arg):
             if arg == "frontend/dist":
                 return dist_dir

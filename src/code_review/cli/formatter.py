@@ -183,6 +183,7 @@ def render_markdown(result: ReviewResult) -> str:
     lines.append("")
     return "\n".join(lines)
 
+
 FORMATTERS: dict[str, Callable[[ReviewResult], str | None]] = {
     "table": lambda res: None,
     "json": render_json,

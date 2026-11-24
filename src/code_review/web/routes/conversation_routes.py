@@ -5,7 +5,7 @@ import logging
 import time
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
@@ -56,6 +56,7 @@ def _to_detail_response(conversation: ConversationRecord) -> ConversationDetailR
         title=conversation.title,
         is_pinned=bool(conversation.is_pinned),
         is_archived=bool(conversation.is_archived),
+        is_shared=bool(conversation.is_shared),
         section_name=conversation.section_name,
         created_at=conversation.created_at,
         updated_at=conversation.updated_at,
@@ -407,18 +408,24 @@ def _attachment_auth_query(db: Session, attachment_id: str, user: UserRecord | N
                     | AttachmentRecord.conversation.has(
                         (ConversationRecord.user_id == user.id)
                         | (ConversationRecord.user_id.is_(None))
+                        | (ConversationRecord.is_shared.is_(True))
                     )
                 )
             )
             | (AttachmentRecord.conversation.has(ConversationRecord.user_id == user.id))
+            | (AttachmentRecord.conversation.has(ConversationRecord.is_shared.is_(True)))
         )
     else:
         query = query.filter(
             (AttachmentRecord.user_id.is_(None))
             & (
                 AttachmentRecord.conversation_id.is_(None)
-                | AttachmentRecord.conversation.has(ConversationRecord.user_id.is_(None))
+                | AttachmentRecord.conversation.has(
+                    (ConversationRecord.user_id.is_(None))
+                    | (ConversationRecord.is_shared.is_(True))
+                )
             )
+            | (AttachmentRecord.conversation.has(ConversationRecord.is_shared.is_(True)))
         )
     return query
 
@@ -530,19 +537,17 @@ def list_conversations(
         .scalar_subquery()
     )
 
-    stmt = (
-        select(
-            ConversationRecord.id,
-            ConversationRecord.title,
-            ConversationRecord.is_pinned,
-            ConversationRecord.is_archived,
-            ConversationRecord.section_name,
-            ConversationRecord.created_at,
-            ConversationRecord.updated_at,
-            func.coalesce(message_count, 0).label("message_count"),
-        )
-        .filter(ConversationRecord.user_id == user.id)
-    )
+    stmt = select(
+        ConversationRecord.id,
+        ConversationRecord.title,
+        ConversationRecord.is_pinned,
+        ConversationRecord.is_archived,
+        ConversationRecord.is_shared,
+        ConversationRecord.section_name,
+        ConversationRecord.created_at,
+        ConversationRecord.updated_at,
+        func.coalesce(message_count, 0).label("message_count"),
+    ).filter(ConversationRecord.user_id == user.id)
 
     if not include_archived:
         stmt = stmt.filter(ConversationRecord.is_archived.is_(False))
@@ -564,6 +569,7 @@ def list_conversations(
             title=row.title,
             is_pinned=bool(row.is_pinned),
             is_archived=bool(row.is_archived),
+            is_shared=bool(row.is_shared),
             section_name=row.section_name,
             created_at=row.created_at,
             updated_at=row.updated_at,
@@ -609,15 +615,12 @@ def search_conversations(
 
     safe_limit = max(1, min(limit, 50))
     user_filter = (
-        (ConversationRecord.user_id == user.id)
-        if user
-        else (ConversationRecord.user_id.is_(None))
+        (ConversationRecord.user_id == user.id) if user else (ConversationRecord.user_id.is_(None))
     )
 
     # 1. Search conversation titles
-    title_stmt = (
-        select(ConversationRecord)
-        .filter(user_filter, ConversationRecord.title.ilike(f"%{clean_q}%"))
+    title_stmt = select(ConversationRecord).filter(
+        user_filter, ConversationRecord.title.ilike(f"%{clean_q}%")
     )
     if not include_archived:
         title_stmt = title_stmt.filter(ConversationRecord.is_archived.is_(False))
@@ -690,7 +693,6 @@ def search_conversations(
         )
         for entry in sorted_entries
     ]
-
 
 
 @router.post("", response_model=ConversationDetailResponse, status_code=status.HTTP_201_CREATED)
@@ -818,6 +820,8 @@ def update_conversation(
         conversation.is_pinned = bool(payload.is_pinned)
     if "is_archived" in fields_set and payload.is_archived is not None:
         conversation.is_archived = bool(payload.is_archived)
+    if "is_shared" in fields_set and payload.is_shared is not None:
+        conversation.is_shared = bool(payload.is_shared)
     if "section_name" in fields_set:
         if payload.section_name is not None:
             trimmed_sec = payload.section_name.strip()
@@ -865,9 +869,13 @@ def get_conversation(
         .filter(ConversationRecord.id == conversation_id)
     )
     if user:
-        query = query.filter(ConversationRecord.user_id == user.id)
+        query = query.filter(
+            (ConversationRecord.user_id == user.id) | (ConversationRecord.is_shared.is_(True))
+        )
     else:
-        query = query.filter(ConversationRecord.user_id.is_(None))
+        query = query.filter(
+            (ConversationRecord.user_id.is_(None)) | (ConversationRecord.is_shared.is_(True))
+        )
 
     conversation = query.first()
     if not conversation:

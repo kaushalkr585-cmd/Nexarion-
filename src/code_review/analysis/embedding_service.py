@@ -153,6 +153,7 @@ class EmbeddingService:
 
         return None
 
+
 _global_embedding_service: EmbeddingService | None = None
 
 

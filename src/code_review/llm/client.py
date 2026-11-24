@@ -11,19 +11,19 @@ logger = logging.getLogger(__name__)
 
 
 class OllamaClientError(Exception):
-        pass
+    pass
 
 
 class OllamaConnectionError(OllamaClientError):
-        pass
+    pass
 
 
 class OllamaTimeoutError(OllamaClientError):
-        pass
+    pass
 
 
 class OllamaResponseError(OllamaClientError):
-        pass
+    pass
 
 
 class OllamaClient:

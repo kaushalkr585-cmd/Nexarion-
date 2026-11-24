@@ -1,8 +1,9 @@
 """Tests verifying model parameter resolution and normalization across providers."""
+
 from code_review.config import get_settings
+from code_review.llm.client import OllamaClient
 from code_review.llm.factory import get_llm_client
 from code_review.llm.nemotron_client import NemotronClient
-from code_review.llm.client import OllamaClient
 
 
 def test_get_llm_client_normalizes_dummy_model_names():
@@ -48,4 +49,3 @@ def test_nemotron_client_guard():
 
     client3 = NemotronClient(model="")
     assert client3.model == "nvidia/nemotron-3-ultra-550b-a55b"
-

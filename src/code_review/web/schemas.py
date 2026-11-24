@@ -268,6 +268,7 @@ class ConversationResponse(BaseModel):
     title: str
     is_pinned: bool = False
     is_archived: bool = False
+    is_shared: bool = False
     section_name: str | None = None
     created_at: datetime
     updated_at: datetime
@@ -281,6 +282,7 @@ class ConversationDetailResponse(BaseModel):
     title: str
     is_pinned: bool = False
     is_archived: bool = False
+    is_shared: bool = False
     section_name: str | None = None
     created_at: datetime
     updated_at: datetime
@@ -292,6 +294,7 @@ class ConversationUpdateRequest(BaseModel):
     title: str | None = Field(default=None, max_length=512)
     is_pinned: bool | None = None
     is_archived: bool | None = None
+    is_shared: bool | None = None
     section_name: str | None = Field(default=None, max_length=100)
 
 
@@ -306,4 +309,3 @@ class ConversationSearchResult(BaseModel):
     created_at: datetime
     updated_at: datetime
     message_count: int = 0
-

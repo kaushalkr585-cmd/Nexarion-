@@ -6,7 +6,17 @@ export interface RouteState {
 }
 
 export function getViewFromPath(pathname: string): RouteState {
-  const clean = (pathname || "/").trim().replace(/\/+$/, "") || "/";
+  let path = (pathname || "/").trim();
+  if (path.startsWith("http://") || path.startsWith("https://")) {
+    try {
+      const parsed = new URL(path);
+      path = parsed.pathname;
+    } catch {
+      path = path.replace(/^https?:\/\/[^/]+/, "");
+    }
+  }
+
+  const clean = path.replace(/\/+$/, "") || "/";
 
   const cMatch = clean.match(/^\/c\/([a-zA-Z0-9_\-]+)$/);
   if (cMatch) {

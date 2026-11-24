@@ -748,11 +748,7 @@ def get_review_job_status(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Review job not found",
             )
-        return {
-            key: value
-            for key, value in job.items()
-            if key not in {"user_id", "created_at"}
-        }
+        return {key: value for key, value in job.items() if key not in {"user_id", "created_at"}}
 
 
 @router.post(

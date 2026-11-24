@@ -198,5 +198,6 @@ def run_benchmarks():
         json.dump(results, f, indent=2)
     print("\nBenchmark results successfully exported to docs/benchmark_results.json")
 
+
 if __name__ == "__main__":
     run_benchmarks()

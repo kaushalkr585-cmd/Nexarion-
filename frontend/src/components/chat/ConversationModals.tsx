@@ -1,5 +1,7 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import type { Conversation } from "../../types";
+import { conversationApi } from "../../services/api";
+import { getConversationShareUrl } from "../../utils/url";
 
 interface ShareModalProps {
   conversation: Conversation | null;
@@ -9,9 +11,18 @@ interface ShareModalProps {
 export const ShareModal: React.FC<ShareModalProps> = ({ conversation, onClose }) => {
   const [copied, setCopied] = useState(false);
 
+  useEffect(() => {
+    if (conversation?.id) {
+      // Ensure backend marks conversation as shared so it can be viewed by anyone with the link
+      conversationApi.share(conversation.id).catch(() => {
+        // Silently catch background share flag sync error
+      });
+    }
+  }, [conversation?.id]);
+
   if (!conversation) return null;
 
-  const shareUrl = `https://nexarion.com/c/${conversation.id}`;
+  const shareUrl = getConversationShareUrl(conversation.id);
 
   const handleCopy = async () => {
     try {
@@ -19,8 +30,40 @@ export const ShareModal: React.FC<ShareModalProps> = ({ conversation, onClose })
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-
+      try {
+        const textarea = document.createElement("textarea");
+        textarea.value = shareUrl;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch {
+        // Clipboard copy failed
+      }
     }
+  };
+
+  const handleShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: conversation.title || "Nexarion Chat",
+          text: `Check out this conversation on Nexarion: ${conversation.title}`,
+          url: shareUrl,
+        });
+        return;
+      } catch (err: unknown) {
+        const errorObj = err as { name?: string };
+        if (errorObj?.name === "AbortError") {
+          return;
+        }
+      }
+    }
+    await handleCopy();
   };
 
   return (
@@ -110,11 +153,36 @@ export const ShareModal: React.FC<ShareModalProps> = ({ conversation, onClose })
           </button>
         </div>
 
-        <div className="mt-5 flex justify-end">
+        <div className="mt-5 flex items-center justify-between">
+          {typeof navigator !== "undefined" && typeof navigator.share === "function" ? (
+            <button
+              type="button"
+              onClick={handleShare}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 transition-colors flex items-center gap-1.5 cursor-pointer"
+            >
+              <svg
+                className="w-3.5 h-3.5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="18" cy="5" r="3" />
+                <circle cx="6" cy="12" r="3" />
+                <circle cx="18" cy="19" r="3" />
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+              </svg>
+              <span>Share...</span>
+            </button>
+          ) : <div />}
+
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-1.5 rounded-lg text-xs text-neutral-400 hover:text-white hover:bg-white/10 transition-colors"
+            className="px-4 py-1.5 rounded-lg text-xs text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
           >
             Close
           </button>

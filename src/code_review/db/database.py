@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class Base(DeclarativeBase):
-        pass
+    pass
 
 
 @lru_cache(maxsize=1)
@@ -70,6 +70,10 @@ def init_database() -> None:
             if "summary" not in columns:
                 conn.execute(
                     text("ALTER TABLE conversations ADD COLUMN summary TEXT DEFAULT NULL")
+                )
+            if "is_shared" not in columns:
+                conn.execute(
+                    text("ALTER TABLE conversations ADD COLUMN is_shared BOOLEAN DEFAULT FALSE")
                 )
 
         if conn.dialect.name == "postgresql":

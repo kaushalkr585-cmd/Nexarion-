@@ -39,6 +39,7 @@ def auth_headers_alpha(user_alpha: UserRecord) -> dict[str, str]:
     token = create_access_token({"sub": user_alpha.id, "email": user_alpha.email})
     return {"Authorization": f"Bearer {token}"}
 
+
 SAMPLE_3_9KB_DIFF = """diff --git a/src/auth/service.py b/src/auth/service.py
 index 1234567..89abcde 100644
 --- a/src/auth/service.py

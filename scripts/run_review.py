@@ -103,5 +103,6 @@ def main() -> None:
             print(f"   Fix:      \033[92m{finding.suggestion}\033[0m")
         print()
 
+
 if __name__ == "__main__":
     main()

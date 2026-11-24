@@ -63,6 +63,7 @@ export interface Conversation {
   title: string;
   is_pinned?: boolean;
   is_archived?: boolean;
+  is_shared?: boolean;
   section_name?: string | null;
   created_at: string;
   updated_at: string;

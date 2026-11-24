@@ -111,6 +111,7 @@ def setup_db() -> None:
     with Session(engine) as session:
         seed_database(session)
 
+
 if __name__ == "__main__":
     setup_db()
     print("Database initialization and seed complete!")
