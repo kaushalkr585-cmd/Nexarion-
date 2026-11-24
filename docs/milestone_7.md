@@ -19,28 +19,28 @@ Milestone 7 transforms the Multi-Agent Code Review system into **NEXARION** — 
 
 ## 2. File & Component Breakdown
 
-| File / Component | Purpose |
-| :--- | :--- |
-| `src/code_review/config.py` | Settings updated with database, NVIDIA, Cloudinary, and Auth fields |
-| `src/code_review/llm/nemotron_client.py` | NVIDIA NIM REST client using standard library `urllib` |
-| `src/code_review/llm/factory.py` | Provider factory returning OllamaClient or NemotronClient |
-| `src/code_review/llm/__init__.py` | Exported NemotronClient and get_llm_client |
-| `src/code_review/agents/llm_agent.py` | LLMAgent updated to support provider selection |
-| `src/code_review/orchestrator.py` | ReviewOrchestrator updated with `llm_provider` parameter |
-| `src/code_review/db/database.py` | SQLAlchemy engine, session maker, and DB dependency |
-| `src/code_review/db/models.py` | ORM models: User, Repository, PullRequest, Review, Finding, AgentConfig |
-| `src/code_review/db/init_db.py` | Database initialization and seeding script |
-| `src/code_review/web/auth.py` | JWT token handling and bcrypt password hashing |
-| `src/code_review/web/schemas.py` | Pydantic request/response schemas |
-| `src/code_review/web/routes/*.py` | Endpoints: auth, reviews, pull requests, agents, providers, user |
-| `src/code_review/web/app.py` | FastAPI application with CORS and SPA static serving |
-| `frontend/src/index.css` | Design system tokens, neon glow, and muted status styles |
-| `frontend/src/components/layout/Logo.tsx` | Geometric NEXARION logo SVG component |
-| `frontend/src/components/orb/AIOrb.tsx` | Reusable animated iridescent AI orb |
-| `frontend/src/components/reviews/ReviewComposer.tsx` | Glowing neon-edged review composer |
-| `frontend/src/components/reviews/ReviewDetailModal.tsx` | Findings inspector with diff viewer |
-| `frontend/src/pages/*.tsx` | 5 application pages: Overview, PRs, Agents, History, Settings |
-| `tests/test_web_api.py` | 7 unit tests covering health, providers, agents, PRs, reviews |
+| File / Component | Purpose | Status |
+|:---|:---|:---:|
+| `src/code_review/config.py` | Settings updated with database, NVIDIA, Cloudinary, and Auth fields 
+| `src/code_review/llm/nemotron_client.py` | NVIDIA NIM REST client using standard library `urllib` 
+| `src/code_review/llm/factory.py` | Provider factory returning OllamaClient or NemotronClient 
+| `src/code_review/llm/__init__.py` | Exported NemotronClient and get_llm_client 
+| `src/code_review/agents/llm_agent.py` | LLMAgent updated to support provider selection 
+| `src/code_review/orchestrator.py` | ReviewOrchestrator updated with `llm_provider` parameter 
+| `src/code_review/db/database.py` | SQLAlchemy engine, session maker, and DB dependency 
+| `src/code_review/db/models.py` | ORM models: User, Repository, PullRequest, Review, Finding, AgentConfig
+| `src/code_review/db/init_db.py` | Database initialization and seeding script 
+| `src/code_review/web/auth.py` | JWT token handling and bcrypt password hashing 
+| `src/code_review/web/schemas.py` | Pydantic request/response schemas 
+| `src/code_review/web/routes/*.py` | Endpoints: auth, reviews, pull requests, agents, providers, user 
+| `src/code_review/web/app.py` | FastAPI application with CORS and SPA static serving 
+| `frontend/src/index.css` | Design system tokens, neon glow, and muted status styles 
+| `frontend/src/components/layout/Logo.tsx` | Geometric NEXARION logo SVG component
+| `frontend/src/components/orb/AIOrb.tsx` | Reusable animated iridescent AI orb 
+| `frontend/src/components/reviews/ReviewComposer.tsx` | Glowing neon-edged review composer 
+| `frontend/src/components/reviews/ReviewDetailModal.tsx` | Findings inspector with diff viewer 
+| `frontend/src/pages/*.tsx` | 5 application pages: Overview, PRs, Agents, History, Settings 
+| `tests/test_web_api.py` | 7 unit tests covering health, providers, agents, PRs, reviews 
 
 ---
 

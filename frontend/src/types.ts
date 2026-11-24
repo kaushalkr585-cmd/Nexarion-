@@ -71,6 +71,17 @@ export interface Conversation {
   attachments?: Attachment[];
 }
 
+export interface ConversationSearchResult {
+  id: string;
+  title: string;
+  match_type: "title" | "message" | "both";
+  snippet: string;
+  role?: "user" | "assistant" | null;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+}
+
 export interface Finding {
   id: string;
   agent: string;

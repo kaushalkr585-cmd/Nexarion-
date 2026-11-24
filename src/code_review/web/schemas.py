@@ -293,3 +293,17 @@ class ConversationUpdateRequest(BaseModel):
     is_pinned: bool | None = None
     is_archived: bool | None = None
     section_name: str | None = Field(default=None, max_length=100)
+
+
+class ConversationSearchResult(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    title: str
+    match_type: str  # "title", "message", or "both"
+    snippet: str
+    role: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    message_count: int = 0
+

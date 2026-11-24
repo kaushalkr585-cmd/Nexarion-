@@ -37,6 +37,7 @@ from code_review.web.schemas import (
     ConversationCreateRequest,
     ConversationDetailResponse,
     ConversationResponse,
+    ConversationSearchResult,
     ConversationUpdateRequest,
     MessageCreateRequest,
     MessageEditRequest,
@@ -570,6 +571,126 @@ def list_conversations(
         )
         for row in rows
     ]
+
+
+def _extract_snippet(text: str, query: str, radius: int = 50) -> str:
+    if not text:
+        return ""
+    q_lower = query.lower()
+    t_lower = text.lower()
+    idx = t_lower.find(q_lower)
+    if idx == -1:
+        clean = " ".join(text.split())
+        return clean[:120] + ("..." if len(clean) > 120 else "")
+
+    start = max(0, idx - radius)
+    end = min(len(text), idx + len(query) + radius)
+
+    snippet = text[start:end]
+    clean_snippet = " ".join(snippet.split())
+    if start > 0:
+        clean_snippet = "..." + clean_snippet
+    if end < len(text):
+        clean_snippet = clean_snippet + "..."
+    return clean_snippet
+
+
+@router.get("/search", response_model=list[ConversationSearchResult])
+def search_conversations(
+    q: str,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[UserRecord | None, Depends(get_current_user_optional)],
+    limit: int = 20,
+    include_archived: bool = False,
+) -> list[ConversationSearchResult]:
+    clean_q = q.strip()
+    if not clean_q:
+        return []
+
+    safe_limit = max(1, min(limit, 50))
+    user_filter = (
+        (ConversationRecord.user_id == user.id)
+        if user
+        else (ConversationRecord.user_id.is_(None))
+    )
+
+    # 1. Search conversation titles
+    title_stmt = (
+        select(ConversationRecord)
+        .filter(user_filter, ConversationRecord.title.ilike(f"%{clean_q}%"))
+    )
+    if not include_archived:
+        title_stmt = title_stmt.filter(ConversationRecord.is_archived.is_(False))
+    title_stmt = title_stmt.order_by(ConversationRecord.updated_at.desc()).limit(safe_limit)
+    title_matches = db.execute(title_stmt).scalars().all()
+
+    # 2. Search message contents
+    msg_stmt = (
+        select(MessageRecord, ConversationRecord)
+        .join(ConversationRecord, MessageRecord.conversation_id == ConversationRecord.id)
+        .filter(user_filter, MessageRecord.content.ilike(f"%{clean_q}%"))
+    )
+    if not include_archived:
+        msg_stmt = msg_stmt.filter(ConversationRecord.is_archived.is_(False))
+    msg_stmt = msg_stmt.order_by(MessageRecord.created_at.desc()).limit(safe_limit * 3)
+    msg_matches = db.execute(msg_stmt).all()
+
+    conv_results: dict[str, dict[str, Any]] = {}
+
+    for conv in title_matches:
+        conv_results[conv.id] = {
+            "conv": conv,
+            "match_type": "title",
+            "snippet": conv.title,
+            "role": None,
+        }
+
+    for msg, conv in msg_matches:
+        if conv.id not in conv_results:
+            conv_results[conv.id] = {
+                "conv": conv,
+                "match_type": "message",
+                "snippet": _extract_snippet(msg.content, clean_q),
+                "role": msg.role,
+            }
+        else:
+            entry = conv_results[conv.id]
+            entry["match_type"] = "both"
+            if entry["snippet"] == entry["conv"].title:
+                entry["snippet"] = _extract_snippet(msg.content, clean_q)
+                entry["role"] = msg.role
+
+    if not conv_results:
+        return []
+
+    conv_ids = list(conv_results.keys())
+    counts_stmt = (
+        select(MessageRecord.conversation_id, func.count(MessageRecord.id))
+        .filter(MessageRecord.conversation_id.in_(conv_ids))
+        .group_by(MessageRecord.conversation_id)
+    )
+    counts_map = dict(db.execute(counts_stmt).all())
+
+    sorted_entries = sorted(
+        conv_results.values(),
+        key=lambda e: e["conv"].updated_at or e["conv"].created_at,
+        reverse=True,
+    )[:safe_limit]
+
+    return [
+        ConversationSearchResult(
+            id=entry["conv"].id,
+            title=entry["conv"].title,
+            match_type=entry["match_type"],
+            snippet=entry["snippet"],
+            role=entry["role"],
+            created_at=entry["conv"].created_at,
+            updated_at=entry["conv"].updated_at,
+            message_count=counts_map.get(entry["conv"].id, 0),
+        )
+        for entry in sorted_entries
+    ]
+
 
 
 @router.post("", response_model=ConversationDetailResponse, status_code=status.HTTP_201_CREATED)

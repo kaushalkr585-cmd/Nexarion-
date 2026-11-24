@@ -11,6 +11,7 @@ import {
   OverviewIcon,
   PlusIcon,
   PrIcon,
+  SearchIcon,
   SettingsIcon,
 } from "../icons/Icons";
 
@@ -22,6 +23,7 @@ interface SidebarProps {
   onSelectConversation: (id: string) => void;
   onNewChat: () => void;
   onNewReview: () => void;
+  onOpenSearch?: () => void;
   onRenameConversation?: (id: string, title: string) => Promise<void>;
   onTogglePinConversation?: (id: string, isPinned: boolean) => Promise<void>;
   onSetConversationSection?: (id: string, sectionName: string | null) => Promise<void>;
@@ -50,6 +52,7 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
   onSelectConversation,
   onNewChat,
   onNewReview,
+  onOpenSearch,
   onRenameConversation,
   onTogglePinConversation,
   onSetConversationSection,
@@ -431,6 +434,27 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
               <span>+ Review</span>
             </button>
           </div>
+
+          {onOpenSearch && (
+            <button
+              type="button"
+              onClick={() => {
+                onOpenSearch();
+                if (onCloseMobile) onCloseMobile();
+              }}
+              className="w-full mt-2.5 flex items-center justify-between min-h-[38px] px-3 py-1.5 text-xs text-neutral-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] active:bg-white/10 border border-white/10 rounded-xl transition-all cursor-pointer group"
+              title="Search chats (Ctrl + K)"
+              aria-label="Search chats"
+            >
+              <div className="flex items-center gap-2.5">
+                <SearchIcon className="w-4 h-4 text-neutral-400 group-hover:text-white transition-colors" />
+                <span className="text-[13px] font-medium">Search chats</span>
+              </div>
+              <kbd className="hidden sm:inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-mono text-neutral-400 bg-white/5 rounded border border-white/10">
+                <span className="text-[9px]">Ctrl</span> K
+              </kbd>
+            </button>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto overscroll-y-contain px-3 py-3 space-y-5">

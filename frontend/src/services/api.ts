@@ -2,6 +2,7 @@ import type {
   AgentConfig,
   Attachment,
   Conversation,
+  ConversationSearchResult,
   GitHubPullRequest,
   GitHubRepo,
   GitHubStatus,
@@ -308,6 +309,13 @@ export const overviewApi = {
 };
 
 export const conversationApi = {
+  async search(query: string, limit: number = 20): Promise<ConversationSearchResult[]> {
+    const trimmed = query.trim();
+    if (!trimmed) return [];
+    const params = new URLSearchParams({ q: trimmed, limit: String(limit) });
+    return request<ConversationSearchResult[]>(`/api/conversations/search?${params.toString()}`);
+  },
+
   async list(includeArchived: boolean = true): Promise<Conversation[]> {
     const query = includeArchived ? "?include_archived=true" : "";
     return request<Conversation[]>(`/api/conversations${query}`);

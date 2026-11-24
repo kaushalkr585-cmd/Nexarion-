@@ -1,11 +1,51 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 from enum import StrEnum
 
 
 class Severity(StrEnum):
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     INFO = "info"
     WARNING = "warning"
     ERROR = "error"
     CRITICAL = "critical"
+
+
+
 
 SEVERITY_RANK: dict[Severity, int] = {
     Severity.INFO: 0,
@@ -16,10 +56,36 @@ SEVERITY_RANK: dict[Severity, int] = {
 
 
 def severity_rank(severity: Severity) -> int:
+
+
+
+
+
+
+
+
+
+
+
     return SEVERITY_RANK[severity]
 
 
 class Category(StrEnum):
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     SECURITY = "security"
     CODE_QUALITY = "code_quality"
     PERFORMANCE = "performance"
@@ -29,6 +95,21 @@ class Category(StrEnum):
 
 
 class AgentType(StrEnum):
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     AST = "ast"
     RUFF = "ruff"
     BANDIT = "bandit"

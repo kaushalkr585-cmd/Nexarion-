@@ -12,6 +12,7 @@ import type {
 import { attachmentApi } from "../../services/api";
 import {
   AgentIcon,
+  ArrowUpIcon,
   BackIcon,
   ChatIcon,
   CloseIcon,
@@ -28,7 +29,7 @@ import {
   PaperclipIcon,
   PlusIcon,
   PrIcon,
-  SendIcon,
+  StopSquareIcon,
 } from "../icons/Icons";
 import { MarkdownContent } from "./MarkdownContent";
 import { MessageActionToolbar } from "./MessageActionToolbar";
@@ -1257,21 +1258,21 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                 <button
                   type="button"
                   onClick={onStopGeneration}
-                  className="min-w-[42px] min-h-[42px] p-2 sm:px-3 sm:py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white border border-white/20 transition-all flex items-center justify-center gap-1.5 font-mono text-xs cursor-pointer shadow-sm"
+                  className="w-11 h-11 rounded-full bg-white text-black hover:bg-neutral-200 active:scale-95 transition-all duration-200 flex items-center justify-center cursor-pointer"
                   title="Stop generating"
                   aria-label="Stop generation"
                 >
-                  <span className="w-2.5 h-2.5 bg-white rounded-xs inline-block" />
-                  <span className="hidden sm:inline">Stop</span>
+                  <StopSquareIcon className="w-4 h-4 text-black" />
                 </button>
               ) : (
                 <button
                   type="submit"
                   disabled={!input.trim() || attachments.some((a) => a.status === "uploading")}
-                  className="min-w-[42px] min-h-[42px] p-2 sm:px-3 sm:py-2 rounded-xl bg-white text-black hover:bg-neutral-200 active:bg-neutral-300 disabled:opacity-30 disabled:hover:bg-white transition-all flex items-center justify-center font-medium shadow-sm cursor-pointer"
+                  className="w-11 h-11 rounded-full bg-white text-black hover:bg-neutral-200 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-white disabled:active:scale-100 transition-all duration-200 flex items-center justify-center font-medium cursor-pointer"
+                  title="Send message (Enter)"
                   aria-label="Send message"
                 >
-                  <SendIcon className="w-4 h-4" />
+                  <ArrowUpIcon className="w-5 h-5 text-black" />
                 </button>
               )}
             </div>

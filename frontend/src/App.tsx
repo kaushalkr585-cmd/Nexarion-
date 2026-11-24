@@ -39,7 +39,8 @@ import { ReviewDetailModal } from "./components/reviews/ReviewDetailModal";
 import { AuthModal } from "./components/modals/AuthModal";
 import { ResourceModal, type ResourceType } from "./components/modals/ResourceModal";
 import { GitHubPrPickerModal } from "./components/github/GitHubPrPickerModal";
-import { BackIcon, CloseIcon, CodeIcon, MenuIcon, PlusIcon, SettingsIcon } from "./components/icons/Icons";
+import { ChatSearchModal } from "./components/chat/ChatSearchModal";
+import { BackIcon, CloseIcon, CodeIcon, MenuIcon, PlusIcon, SearchIcon, SettingsIcon } from "./components/icons/Icons";
 import { useDocumentTitle } from "./hooks/useDocumentTitle";
 import { getViewFromPath, getPathFromView } from "./utils/router";
 import {
@@ -151,6 +152,18 @@ export const App: React.FC = () => {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [activeResource, setActiveResource] = useState<ResourceType | null>(null);
   const [isGitHubModalOpen, setIsGitHubModalOpen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setIsSearchOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, []);
 
   useDocumentTitle({
     currentView,
@@ -1726,6 +1739,17 @@ export const App: React.FC = () => {
         <div className="flex items-center gap-1 flex-shrink-0">
           <button
             type="button"
+            onClick={() => setIsSearchOpen(true)}
+            className="h-9 px-2.5 rounded-xl bg-white/5 hover:bg-white/10 active:bg-white/20 text-neutral-300 hover:text-white font-mono text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm border border-white/10"
+            title="Search chats (Ctrl + K)"
+            aria-label="Search chats"
+          >
+            <SearchIcon className="w-4 h-4" />
+            <span className="hidden xs:inline">Search</span>
+          </button>
+
+          <button
+            type="button"
             onClick={handleNewChat}
             className="h-9 px-2.5 rounded-xl bg-white/10 hover:bg-white/20 active:bg-white/30 text-white font-mono text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm border border-white/10"
             title="Start new conversation"
@@ -1831,6 +1855,7 @@ export const App: React.FC = () => {
           onOpenAuth={() => setIsAuthOpen(true)}
           isMobileOpen={isMobileNavOpen}
           onCloseMobile={() => setIsMobileNavOpen(false)}
+          onOpenSearch={() => setIsSearchOpen(true)}
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={handleToggleSidebarCollapse}
         />
@@ -2078,6 +2103,15 @@ export const App: React.FC = () => {
       />
 
       <AskNexarionSelectionHandler onAskNexarion={handleAskNexarion} />
+
+      <ChatSearchModal
+        isOpen={isSearchOpen}
+        onClose={() => setIsSearchOpen(false)}
+        onSelectConversation={(id) => {
+          handleSelectConversation(id);
+          setIsSearchOpen(false);
+        }}
+      />
 
       {agentToast && (
         <div
