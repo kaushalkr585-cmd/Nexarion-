@@ -1,8 +1,6 @@
-# Nexarion
+ # Nexarion
 
 Nexarion is an automated code review platform that inspects code diffs and GitHub pull requests using a team of specialized review agents. Instead of throwing an entire diff at a single generic prompt or relying exclusively on static linters, Nexarion coordinates multiple deterministic analyzers alongside an LLM to catch security bugs, architectural regressions, and maintainability issues.
-
-GitHub Repository: [https://github.com/kaushalkr585-cmd/Nexarion-](https://github.com/kaushalkr585-cmd/Nexarion-)
 
 ---
 
@@ -403,7 +401,3 @@ Contributions, bug reports, and suggestions are welcome.
 5. Push to your branch and open a Pull Request.
 
 ---
-
-## License
-
-Licensing information is not yet available for this project.
