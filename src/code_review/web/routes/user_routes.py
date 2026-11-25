@@ -1,17 +1,27 @@
 import logging
 import uuid
 from pathlib import Path
+from typing import Any
 
 import cloudinary
 import cloudinary.uploader
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
 from code_review.config import get_settings
 from code_review.db.database import get_db
-from code_review.db.models import UserRecord
-from code_review.web.auth import get_current_user
-from code_review.web.schemas import UserResponse, UserUpdateRequest
+from code_review.db.models import GitHubConnectionRecord, UserRecord
+from code_review.github.service import GitHubService
+from code_review.web.account_deletion import AccountDeletionError, execute_account_deletion
+from code_review.web.auth import get_current_user, verify_password, verify_reauth_token
+from code_review.web.routes.auth_routes import SESSION_COOKIE_NAME, perform_password_change
+from code_review.web.schemas import (
+    AccountDeletionRequest,
+    AuthResponse,
+    ChangePasswordRequest,
+    UserResponse,
+    UserUpdateRequest,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["User Profile"])
@@ -67,6 +77,22 @@ def update_profile(
         )
     db.refresh(user)
     return UserResponse.model_validate(user)
+
+
+@router.post("/me/password", response_model=AuthResponse)
+def update_user_password(
+    payload: ChangePasswordRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    user: UserRecord = Depends(get_current_user),
+) -> AuthResponse:
+    return perform_password_change(
+        db,
+        user=user,
+        current_password=payload.current_password,
+        new_password=payload.new_password,
+        response=response,
+    )
 
 
 @router.post("/avatar", response_model=UserResponse)
@@ -140,13 +166,97 @@ async def upload_avatar(
     return UserResponse.model_validate(user)
 
 
+def _verify_deletion_reauth(
+    db: Session,
+    user: UserRecord,
+    payload: AccountDeletionRequest,
+) -> None:
+    if payload.reauth_token:
+        if not verify_reauth_token(payload.reauth_token, user, expected_purpose="account_delete"):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Re-authentication token is invalid or expired. Please verify your identity again.",
+            )
+        return
+
+    if payload.password:
+        if not user.hashed_password or not verify_password(payload.password, user.hashed_password):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect password. Re-authentication failed.",
+            )
+        return
+
+    if payload.github_pat:
+        pat = payload.github_pat.strip()
+        if not user.github_connected:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="GitHub is not connected to this account.",
+            )
+        try:
+            profile = GitHubService().get_user_profile(pat)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="GitHub token verification failed.",
+            ) from exc
+        login_name = str(profile.get("login") or "").lower()
+        account_id = str(profile.get("id") or "")
+        conn = (
+            db.query(GitHubConnectionRecord)
+            .filter(GitHubConnectionRecord.user_id == user.id)
+            .order_by(GitHubConnectionRecord.updated_at.desc())
+            .first()
+        )
+        expected_id = str(conn.github_account_id) if (conn and conn.github_account_id) else ""
+        expected_login = (
+            conn.github_username
+            if (conn and conn.github_username)
+            else (user.github_username or "")
+        ).lower()
+        id_ok = bool(expected_id and account_id and expected_id == account_id)
+        login_ok = bool(expected_login and login_name and expected_login == login_name)
+        if not (id_ok or login_ok):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Provided GitHub token does not match the connected GitHub account.",
+            )
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Re-authentication is required before permanently deleting your account.",
+    )
+
+
 @router.delete("/account")
+@router.delete("/me")
 def delete_account(
+    response: Response,
+    payload: AccountDeletionRequest | None = Body(default=None),
     db: Session = Depends(get_db),
     user: UserRecord = Depends(get_current_user),
-) -> dict[str, str]:
-    user_id = user.id
-    db.delete(user)
-    db.commit()
-    logger.info("Deleted account for user %s", user_id)
-    return {"message": "Account successfully deleted."}
+) -> dict[str, Any]:
+    if not payload or payload.confirmation_text.strip() != "DELETE":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You must type DELETE to confirm permanent account deletion.",
+        )
+
+    _verify_deletion_reauth(db, user, payload)
+
+    try:
+        summary = execute_account_deletion(db, user)
+    except AccountDeletionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+
+    response.delete_cookie(key=SESSION_COOKIE_NAME, path="/")
+    return {
+        "status": "deleted",
+        "message": "Your Nexarion account and associated personal data have been permanently deleted.",
+        "summary": summary,
+    }

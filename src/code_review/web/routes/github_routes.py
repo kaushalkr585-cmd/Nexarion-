@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 import logging
+import secrets
 import threading
 import time
+from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
+import jwt
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -24,10 +27,25 @@ from sqlalchemy.orm import Session
 from code_review.agents.registry import get_persisted_enabled_agent_ids
 from code_review.config import get_settings
 from code_review.db.database import get_db, get_session_factory
-from code_review.db.models import FindingRecord, ReviewRecord, UserRecord
-from code_review.github.service import GitHubService
+from code_review.db.models import (
+    ConversationRecord,
+    ConversationRepositoryContextRecord,
+    FindingRecord,
+    GitHubConnectionRecord,
+    ReviewRecord,
+    UserRecord,
+)
+from code_review.github.auth_resolver import ensure_github_tables, resolve_user_github_context
+from code_review.github.cache import get_github_cache
+from code_review.github.service import GitHubApiError, GitHubAuthError, GitHubService
 from code_review.orchestrator import ReviewOrchestrator
-from code_review.web.auth import get_current_user, get_current_user_optional
+from code_review.web.auth import (
+    ALGORITHM,
+    create_reauth_token,
+    get_current_user,
+    get_current_user_optional,
+)
+from code_review.web.crypto import encrypt_secret
 from code_review.web.schemas import FindingResponse, ReviewDetailResponse
 
 logger = logging.getLogger(__name__)
@@ -62,6 +80,26 @@ class GitHubStatusResponse(BaseModel):
     username: str | None = None
     configured: bool
     auth_type: str = "oauth"
+    auth_method: str = "none"
+    connection_status: str = "not_connected"
+    app_configured: bool = False
+    installation_id: str | None = None
+
+
+class ConversationRepoContextRequest(BaseModel):
+    repository_full_name: str = Field(..., min_length=3, max_length=255)
+    repository_id: str | None = None
+    default_branch: str = "main"
+    selected_branch: str | None = None
+
+
+class ConversationRepoContextResponse(BaseModel):
+    conversation_id: str
+    repository_full_name: str
+    repository_id: str | None = None
+    default_branch: str = "main"
+    selected_branch: str = "main"
+    last_inspected_commit: str | None = None
 
 
 class PostReviewRequest(BaseModel):
@@ -333,6 +371,43 @@ async def handle_github_webhook(
             "message": "PR review dispatched for background processing.",
         }
 
+    if event == "installation":
+        action = payload.get("action", "")
+        installation_id = str((payload.get("installation") or {}).get("id") or "")
+        if installation_id and action in ("deleted", "suspend"):
+            session_factory = get_session_factory()
+            with session_factory() as wh_db:
+                conns = (
+                    wh_db.query(GitHubConnectionRecord)
+                    .filter(GitHubConnectionRecord.installation_id == installation_id)
+                    .all()
+                )
+                for conn in conns:
+                    conn.connection_status = "revoked" if action == "deleted" else "expired"
+                    conn.encrypted_access_token = None
+                    user_rec = (
+                        wh_db.query(UserRecord).filter(UserRecord.id == conn.user_id).first()
+                    )
+                    if user_rec:
+                        user_rec.github_connected = False
+                        user_rec.github_token = None
+                wh_db.commit()
+            get_github_cache().clear()
+        return {
+            "status": "processed",
+            "event": "installation",
+            "action": action,
+            "installation_id": installation_id,
+        }
+
+    if event == "installation_repositories":
+        get_github_cache().clear()
+        return {
+            "status": "processed",
+            "event": "installation_repositories",
+            "action": payload.get("action", ""),
+        }
+
     return {
         "status": "ignored",
         "event": event,
@@ -340,62 +415,360 @@ async def handle_github_webhook(
     }
 
 
+def _generate_github_state(
+    user_id: str | None = None,
+    origin: str | None = None,
+    *,
+    intent: str = "connect",
+) -> str:
+    settings = get_settings()
+    fallback_origin = (
+        settings.frontend_url.rstrip("/") if settings.frontend_url else "http://localhost:5173"
+    )
+    target_origin = (origin or fallback_origin).rstrip("/")
+    payload = {
+        "nonce": secrets.token_hex(16),
+        "user_id": user_id,
+        "origin": target_origin,
+        "intent": intent,
+        "exp": int(time.time()) + 600,
+    }
+    return jwt.encode(payload, settings.session_secret, algorithm=ALGORITHM)
+
+
+def _decode_github_state(state: str | None) -> dict[str, Any] | None:
+    if not state:
+        return None
+    settings = get_settings()
+    try:
+        return jwt.decode(state, settings.session_secret, algorithms=[ALGORITHM])
+    except jwt.PyJWTError as exc:
+        logger.warning("Invalid GitHub state parameter: %s", exc)
+        return None
+
+
+def _upsert_github_connection(
+    db: Session,
+    *,
+    user: UserRecord,
+    auth_method: str,
+    username: str | None,
+    access_token: str | None,
+    account_id: str | None = None,
+    installation_id: str | None = None,
+    token_expires_at: datetime | None = None,
+    permissions: dict[str, Any] | None = None,
+) -> GitHubConnectionRecord:
+    ensure_github_tables()
+    conn = (
+        db.query(GitHubConnectionRecord)
+        .filter(GitHubConnectionRecord.user_id == user.id)
+        .order_by(GitHubConnectionRecord.updated_at.desc())
+        .first()
+    )
+    if not conn:
+        conn = GitHubConnectionRecord(user_id=user.id)
+        db.add(conn)
+
+    conn.auth_method = auth_method
+    conn.github_account_id = account_id
+    conn.github_username = username
+    conn.installation_id = installation_id
+    conn.encrypted_access_token = encrypt_secret(access_token) if access_token else None
+    conn.token_expires_at = token_expires_at
+    if permissions is not None:
+        conn.permissions_json = permissions
+    conn.connection_status = "connected"
+
+    # Maintain backward compatibility with legacy UserRecord fields used by existing PR review routes
+    user.github_connected = True
+    user.github_username = username
+    user.github_token = encrypt_secret(access_token) if access_token else user.github_token
+    db.commit()
+    db.refresh(conn)
+    get_github_cache().invalidate_scope(f"user:{user.id}")
+    return conn
+
+
 @router.get("/status", response_model=GitHubStatusResponse)
 def get_github_status(
+    db: Session = Depends(get_db),
     user: UserRecord | None = Depends(get_current_user_optional),
 ) -> GitHubStatusResponse:
     settings = get_settings()
+    svc = GitHubService()
     has_oauth_config = bool(settings.github_client_id and settings.github_client_secret)
+    app_configured = svc.is_github_app_configured()
 
-    if not user or not user.github_connected or not user.github_token:
+    resolved = resolve_user_github_context(db, user)
+    if not resolved.connected:
         return GitHubStatusResponse(
             connected=False,
-            username=None,
-            configured=has_oauth_config,
-            auth_type="oauth" if has_oauth_config else "token",
+            username=resolved.username,
+            configured=has_oauth_config or app_configured,
+            auth_type="github_app"
+            if app_configured
+            else ("oauth" if has_oauth_config else "token"),
+            auth_method=resolved.auth_method,
+            connection_status=resolved.connection_status,
+            app_configured=app_configured,
+            installation_id=resolved.installation_id,
         )
 
     return GitHubStatusResponse(
         connected=True,
-        username=user.github_username,
-        configured=has_oauth_config,
-        auth_type="oauth" if has_oauth_config else "token",
+        username=resolved.username,
+        configured=has_oauth_config or app_configured,
+        auth_type="github_app"
+        if resolved.auth_method == "github_app"
+        else ("oauth" if has_oauth_config else "token"),
+        auth_method=resolved.auth_method,
+        connection_status=resolved.connection_status,
+        app_configured=app_configured,
+        installation_id=resolved.installation_id,
     )
 
 
+@router.get("/app/install-url")
+def get_github_app_install_url(
+    origin: str | None = Query(default=None),
+    user: UserRecord | None = Depends(get_current_user_optional),
+) -> dict[str, Any]:
+    svc = GitHubService()
+    if not svc.is_github_app_configured():
+        return {
+            "url": "",
+            "configured": False,
+            "message": "GitHub App is not configured in environment (GITHUB_APP_ID / SLUG / KEY).",
+        }
+    state = _generate_github_state(user_id=user.id if user else None, origin=origin)
+    return {
+        "url": svc.get_app_install_url(state=state),
+        "configured": True,
+    }
+
+
+@router.get("/app/callback")
+def github_app_callback(
+    installation_id: str | None = Query(default=None),
+    setup_action: str | None = Query(default=None),
+    state: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: UserRecord | None = Depends(get_current_user_optional),
+) -> RedirectResponse:
+    settings = get_settings()
+    state_data = _decode_github_state(state)
+    target_origin = (
+        state_data.get("origin")
+        if state_data and "origin" in state_data
+        else (
+            settings.frontend_url.rstrip("/") if settings.frontend_url else "http://localhost:5173"
+        )
+    )
+
+    if not installation_id or not state_data:
+        return RedirectResponse(url=f"{target_origin}/?github=error&reason=invalid_state")
+
+    target_user = current_user
+    if not target_user and state_data.get("user_id"):
+        target_user = db.query(UserRecord).filter(UserRecord.id == state_data["user_id"]).first()
+
+    if not target_user:
+        return RedirectResponse(url=f"{target_origin}/?github=error&reason=auth_required")
+
+    if current_user and state_data.get("user_id") and state_data["user_id"] != current_user.id:
+        logger.warning(
+            "GitHub App callback state user mismatch: %s vs %s",
+            state_data.get("user_id"),
+            current_user.id,
+        )
+        return RedirectResponse(url=f"{target_origin}/?github=error&reason=state_mismatch")
+
+    svc = GitHubService()
+    try:
+        token_data = svc.create_installation_access_token(installation_id)
+        access_token = token_data.get("token")
+        if not access_token:
+            raise GitHubAuthError("Empty installation token returned by GitHub.")
+
+        expires_raw = token_data.get("expires_at")
+        expires_dt = (
+            datetime.fromisoformat(expires_raw.replace("Z", "+00:00")) if expires_raw else None
+        )
+        install_details = svc.get_installation_details(installation_id)
+        account = install_details.get("account") or {}
+        username = account.get("login") or "github_app_user"
+        account_id = str(account.get("id") or "")
+
+        _upsert_github_connection(
+            db,
+            user=target_user,
+            auth_method="github_app",
+            username=username,
+            access_token=access_token,
+            account_id=account_id,
+            installation_id=str(installation_id),
+            token_expires_at=expires_dt,
+            permissions=token_data.get("permissions") or {},
+        )
+        logger.info(
+            "Connected GitHub App installation %s (%s) for user %s (action=%s)",
+            installation_id,
+            username,
+            target_user.id,
+            setup_action,
+        )
+        return RedirectResponse(url=f"{target_origin}/?github=connected")
+    except Exception as exc:
+        logger.error("GitHub App callback failed: %s", exc)
+        return RedirectResponse(url=f"{target_origin}/?github=error")
+
+
 @router.get("/auth-url")
-def get_github_auth_url() -> dict[str, str]:
+def get_github_auth_url(
+    origin: str | None = Query(default=None),
+    user: UserRecord | None = Depends(get_current_user_optional),
+) -> dict[str, Any]:
+    settings = get_settings()
+    if not settings.github_client_id:
+        return {
+            "url": "",
+            "configured": False,
+            "message": (
+                "GitHub OAuth is not configured on the server. "
+                "GITHUB_CLIENT_ID is missing in .env. "
+                "Please connect using a Personal Access Token on the right, or configure GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET."
+            ),
+        }
     service = GitHubService()
-    url = service.get_oauth_url()
-    return {"url": url}
+    state = _generate_github_state(user_id=user.id if user else None, origin=origin)
+    url = service.get_oauth_url(state=state)
+    return {
+        "url": url,
+        "configured": bool(url),
+        "message": None if url else "GitHub Client ID is not configured.",
+    }
+
+
+@router.get("/reauth-url")
+def get_github_reauth_url(
+    origin: str | None = Query(default=None),
+    user: UserRecord = Depends(get_current_user),
+) -> dict[str, Any]:
+    if not user.github_connected:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No GitHub account is connected to re-authenticate.",
+        )
+    settings = get_settings()
+    if not settings.github_client_id:
+        return {
+            "url": "",
+            "configured": False,
+            "message": "GitHub OAuth is not configured on the server.",
+        }
+    service = GitHubService()
+    state = _generate_github_state(
+        user_id=user.id,
+        origin=origin,
+        intent="reauth_delete",
+    )
+    url = service.get_oauth_url(state=state)
+    return {
+        "url": url,
+        "configured": bool(url),
+    }
 
 
 @router.get("/callback")
 def github_callback(
     code: str = Query(...),
+    state: str | None = Query(default=None),
     db: Session = Depends(get_db),
     user: UserRecord | None = Depends(get_current_user_optional),
 ) -> RedirectResponse:
     settings = get_settings()
     service = GitHubService()
+    state_data = _decode_github_state(state)
+    intent = state_data.get("intent", "connect") if state_data else "connect"
+    target_origin = (
+        state_data.get("origin")
+        if state_data and "origin" in state_data
+        else (
+            settings.frontend_url.rstrip("/") if settings.frontend_url else "http://localhost:5173"
+        )
+    )
+    target_user = user
+    if not target_user and state_data and state_data.get("user_id"):
+        target_user = db.query(UserRecord).filter(UserRecord.id == state_data["user_id"]).first()
+
+    if state and not state_data:
+        logger.warning("Rejected GitHub OAuth callback due to invalid state parameter.")
+        if intent == "reauth_delete":
+            return RedirectResponse(
+                url=f"{target_origin}/?view=settings&reauth_error=invalid_state"
+            )
+        return RedirectResponse(url=f"{target_origin}/?github=error&reason=invalid_state")
+
     try:
         access_token = service.exchange_code(code)
         gh_profile = service.get_user_profile(access_token)
         username = gh_profile.get("login", "github_user")
+        account_id = str(gh_profile.get("id") or "")
 
-        if user:
-            user.github_connected = True
-            user.github_token = access_token
-            user.github_username = username
-            db.commit()
-            logger.info("Successfully connected GitHub account %s for user %s", username, user.id)
+        if intent == "reauth_delete":
+            if not target_user:
+                return RedirectResponse(
+                    url=f"{target_origin}/?view=settings&reauth_error=auth_required"
+                )
+            conn = (
+                db.query(GitHubConnectionRecord)
+                .filter(GitHubConnectionRecord.user_id == target_user.id)
+                .order_by(GitHubConnectionRecord.updated_at.desc())
+                .first()
+            )
+            expected_id = str(conn.github_account_id) if (conn and conn.github_account_id) else ""
+            expected_login = (
+                conn.github_username
+                if (conn and conn.github_username)
+                else (target_user.github_username or "")
+            ).lower()
+            id_ok = bool(expected_id and account_id and expected_id == account_id)
+            login_ok = bool(expected_login and username and expected_login == username.lower())
+            if not (id_ok or login_ok):
+                return RedirectResponse(
+                    url=f"{target_origin}/?view=settings&reauth_error=github_account_mismatch",
+                    status_code=status.HTTP_302_FOUND,
+                )
+            reauth_token = create_reauth_token(
+                target_user, purpose="account_delete", method="github"
+            )
+            return RedirectResponse(
+                url=f"{target_origin}/?view=settings&reauth_delete_token={reauth_token}",
+                status_code=status.HTTP_302_FOUND,
+            )
 
-        redirect_target = f"{settings.frontend_url}/?github=connected"
-        return RedirectResponse(url=redirect_target)
+        if target_user:
+            _upsert_github_connection(
+                db,
+                user=target_user,
+                auth_method="oauth",
+                username=username,
+                access_token=access_token,
+                account_id=account_id,
+            )
+            logger.info(
+                "Successfully connected GitHub OAuth %s for user %s", username, target_user.id
+            )
+
+        return RedirectResponse(url=f"{target_origin}/?github=connected")
     except Exception as exc:
         logger.error("GitHub OAuth callback failed: %s", exc)
-        redirect_target = f"{settings.frontend_url}/?github=error"
-        return RedirectResponse(url=redirect_target)
+        if intent == "reauth_delete":
+            return RedirectResponse(
+                url=f"{target_origin}/?view=settings&reauth_error=github_reauth_failed"
+            )
+        return RedirectResponse(url=f"{target_origin}/?github=error")
 
 
 @router.post("/connect", response_model=GitHubStatusResponse)
@@ -412,14 +785,19 @@ def connect_github_token(
 
     service = GitHubService()
     try:
-        gh_profile = service.get_user_profile(payload.token.strip())
+        clean_token = payload.token.strip()
+        gh_profile = service.get_user_profile(clean_token)
         username = gh_profile.get("login", "developer")
+        account_id = str(gh_profile.get("id") or "")
 
-        user.github_connected = True
-        user.github_token = payload.token.strip()
-        user.github_username = username
-        db.commit()
-        db.refresh(user)
+        _upsert_github_connection(
+            db,
+            user=user,
+            auth_method="pat",
+            username=username,
+            access_token=clean_token,
+            account_id=account_id,
+        )
 
         logger.info("Connected GitHub token for user %s (%s)", user.id, username)
         return GitHubStatusResponse(
@@ -427,6 +805,9 @@ def connect_github_token(
             username=username,
             configured=True,
             auth_type="token",
+            auth_method="pat",
+            connection_status="connected",
+            app_configured=service.is_github_app_configured(),
         )
     except Exception as exc:
         logger.error("Failed to validate GitHub token: %s", exc)
@@ -441,22 +822,49 @@ def disconnect_github(
     db: Session = Depends(get_db),
     user: UserRecord | None = Depends(get_current_user_optional),
 ) -> GitHubStatusResponse:
+    svc = GitHubService()
     if user:
+        ensure_github_tables()
+        conns = (
+            db.query(GitHubConnectionRecord)
+            .filter(GitHubConnectionRecord.user_id == user.id)
+            .all()
+        )
+        for conn in conns:
+            conn.connection_status = "disconnected"
+            conn.encrypted_access_token = None
+            conn.encrypted_refresh_token = None
         user.github_connected = False
         user.github_token = None
         user.github_username = None
         db.commit()
+        get_github_cache().invalidate_scope(f"user:{user.id}")
         logger.info("Disconnected GitHub account for user %s", user.id)
 
     return GitHubStatusResponse(
         connected=False,
         username=None,
-        configured=False,
+        configured=svc.is_github_app_configured(),
         auth_type="oauth",
+        auth_method="none",
+        connection_status="disconnected",
+        app_configured=svc.is_github_app_configured(),
     )
 
 
-def _get_active_token(user: UserRecord | None) -> str:
+def _get_active_token(user: UserRecord | None, db: Session | None = None) -> str:
+    if db is not None and user is not None:
+        resolved = resolve_user_github_context(db, user)
+        if not resolved.connected or not resolved.token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "GitHub is not connected or authorization expired. "
+                    "Please connect your GitHub account."
+                ),
+            )
+        return resolved.token
+
     if not user or not user.github_connected or not user.github_token:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -465,17 +873,28 @@ def _get_active_token(user: UserRecord | None) -> str:
                 "Settings or the Pull Requests page."
             ),
         )
-    return user.github_token
+    from code_review.web.crypto import decrypt_secret
+
+    return decrypt_secret(user.github_token) or user.github_token
 
 
 @router.get("/repos", response_model=list[dict[str, Any]])
 def list_repositories(
+    db: Session = Depends(get_db),
     user: UserRecord = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
-    token = _get_active_token(user)
-    service = GitHubService(token)
+    resolved = resolve_user_github_context(db, user)
+    if not resolved.connected or not resolved.token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="GitHub is not connected. Please connect your GitHub account.",
+        )
+    service = GitHubService(resolved.token, cache_scope=resolved.cache_scope)
     try:
         return service.list_repositories()
+    except GitHubAuthError as exc:
+        logger.warning("GitHub auth error listing repos for user %s: %s", user.id, exc)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
     except Exception as exc:
         logger.error("Failed to list GitHub repositories: %s", exc)
         raise HTTPException(
@@ -488,10 +907,11 @@ def list_repositories(
 def list_pull_requests(
     owner: str,
     repo: str,
+    db: Session = Depends(get_db),
     user: UserRecord = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
-    token = _get_active_token(user)
-    service = GitHubService(token)
+    token = _get_active_token(user, db)
+    service = GitHubService(token, cache_scope=f"user:{user.id}")
     try:
         return service.list_pull_requests(owner, repo)
     except HTTPException:
@@ -509,10 +929,11 @@ def get_pull_request_diff(
     owner: str,
     repo: str,
     number: int,
+    db: Session = Depends(get_db),
     user: UserRecord = Depends(get_current_user),
 ) -> dict[str, Any]:
-    token = _get_active_token(user)
-    service = GitHubService(token)
+    token = _get_active_token(user, db)
+    service = GitHubService(token, cache_scope=f"user:{user.id}")
     try:
         return service.get_pull_request_diff(owner, repo, number)
     except HTTPException:
@@ -681,11 +1102,12 @@ def review_pull_request(
     number: int,
     background_tasks: BackgroundTasks,
     post_to_github: bool = Query(default=False),
+    db: Session = Depends(get_db),
     user: UserRecord = Depends(get_current_user),
 ) -> dict[str, str]:
-    token = _get_active_token(user)
+    token = _get_active_token(user, db)
     user_id = user.id
-    service = GitHubService(token)
+    service = GitHubService(token, cache_scope=f"user:{user.id}")
 
     try:
         diff_info = service.get_pull_request_diff(owner, repo, number)
@@ -763,8 +1185,8 @@ def publish_review_to_github(
     db: Session = Depends(get_db),
     user: UserRecord = Depends(get_current_user),
 ) -> PostReviewResponse:
-    token = _get_active_token(user)
-    service = GitHubService(token)
+    token = _get_active_token(user, db)
+    service = GitHubService(token, cache_scope=f"user:{user.id}")
     settings = get_settings()
 
     review: ReviewRecord | None = None
@@ -847,3 +1269,105 @@ def publish_review_to_github(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Failed to publish review to GitHub PR: {exc}",
         ) from exc
+
+
+@router.get(
+    "/context/{conversation_id}",
+    response_model=ConversationRepoContextResponse | None,
+)
+def get_conversation_repo_context(
+    conversation_id: str,
+    db: Session = Depends(get_db),
+    user: UserRecord | None = Depends(get_current_user_optional),
+) -> ConversationRepoContextResponse | None:
+    conv_q = db.query(ConversationRecord).filter(ConversationRecord.id == conversation_id)
+    if user:
+        conv_q = conv_q.filter(ConversationRecord.user_id == user.id)
+    else:
+        conv_q = conv_q.filter(ConversationRecord.user_id.is_(None))
+    if not conv_q.first():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found."
+        )
+
+    ensure_github_tables()
+    ctx = (
+        db.query(ConversationRepositoryContextRecord)
+        .filter(ConversationRepositoryContextRecord.conversation_id == conversation_id)
+        .first()
+    )
+    if not ctx:
+        return None
+    return ConversationRepoContextResponse(
+        conversation_id=ctx.conversation_id,
+        repository_full_name=ctx.repository_full_name,
+        repository_id=ctx.repository_id,
+        default_branch=ctx.default_branch,
+        selected_branch=ctx.selected_branch,
+        last_inspected_commit=ctx.last_inspected_commit,
+    )
+
+
+@router.post(
+    "/context/{conversation_id}",
+    response_model=ConversationRepoContextResponse,
+)
+def set_conversation_repo_context(
+    conversation_id: str,
+    payload: ConversationRepoContextRequest,
+    db: Session = Depends(get_db),
+    user: UserRecord | None = Depends(get_current_user_optional),
+) -> ConversationRepoContextResponse:
+    conv_q = db.query(ConversationRecord).filter(ConversationRecord.id == conversation_id)
+    if user:
+        conv_q = conv_q.filter(ConversationRecord.user_id == user.id)
+    else:
+        conv_q = conv_q.filter(ConversationRecord.user_id.is_(None))
+    if not conv_q.first():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found."
+        )
+
+    if "/" not in payload.repository_full_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="repository_full_name must be in 'owner/repo' format.",
+        )
+
+    owner, repo = payload.repository_full_name.split("/", 1)
+    resolved = resolve_user_github_context(db, user)
+    svc = GitHubService(
+        resolved.token if resolved.connected else None, cache_scope=resolved.cache_scope
+    )
+    try:
+        details = svc.get_repository_details(owner, repo)
+    except GitHubApiError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    ctx = (
+        db.query(ConversationRepositoryContextRecord)
+        .filter(ConversationRepositoryContextRecord.conversation_id == conversation_id)
+        .first()
+    )
+    if not ctx:
+        ctx = ConversationRepositoryContextRecord(
+            conversation_id=conversation_id,
+            user_id=user.id if user else None,
+        )
+        db.add(ctx)
+
+    ctx.repository_full_name = details.get("full_name") or payload.repository_full_name
+    ctx.repository_id = str(details.get("id") or payload.repository_id or "")
+    ctx.default_branch = details.get("default_branch") or payload.default_branch
+    ctx.selected_branch = payload.selected_branch or ctx.default_branch
+    db.commit()
+    db.refresh(ctx)
+
+    return ConversationRepoContextResponse(
+        conversation_id=ctx.conversation_id,
+        repository_full_name=ctx.repository_full_name,
+        repository_id=ctx.repository_id,
+        default_branch=ctx.default_branch,
+        selected_branch=ctx.selected_branch,
+        last_inspected_commit=ctx.last_inspected_commit,
+    )

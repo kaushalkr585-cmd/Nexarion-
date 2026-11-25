@@ -4,8 +4,11 @@ import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.orm import Session
 
+from code_review.db.database import get_db
 from code_review.db.models import UserRecord
+from code_review.github.auth_resolver import resolve_user_github_context
 from code_review.github.service import GitHubService
 from code_review.web.auth import get_current_user
 from code_review.web.schemas import PullRequestResponse
@@ -29,9 +32,11 @@ def list_pull_requests(
     status_filter: str | None = Query(None, alias="status"),
     repository: str | None = Query(None),
     search: str | None = Query(None),
+    db: Session = Depends(get_db),
     user: UserRecord = Depends(get_current_user),
 ) -> list[PullRequestResponse]:
-    if not user.github_connected or not user.github_token:
+    resolved = resolve_user_github_context(db, user)
+    if not resolved.connected or not resolved.token:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
@@ -40,7 +45,7 @@ def list_pull_requests(
             ),
         )
 
-    service = GitHubService(user.github_token)
+    service = GitHubService(resolved.token, cache_scope=resolved.cache_scope)
     try:
         repos = service.list_repositories()
     except Exception as exc:
@@ -112,15 +117,17 @@ def get_pull_request(
     owner: str,
     repo: str,
     number: int,
+    db: Session = Depends(get_db),
     user: UserRecord = Depends(get_current_user),
 ) -> PullRequestResponse:
-    if not user.github_connected or not user.github_token:
+    resolved = resolve_user_github_context(db, user)
+    if not resolved.connected or not resolved.token:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="GITHUB_NOT_CONNECTED: GitHub account is not connected.",
         )
 
-    service = GitHubService(user.github_token)
+    service = GitHubService(resolved.token, cache_scope=resolved.cache_scope)
     try:
         repos = service.list_repositories()
         repo_names = {r["full_name"].lower() for r in repos} | {r["name"].lower() for r in repos}

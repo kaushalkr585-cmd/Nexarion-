@@ -3,8 +3,11 @@ import type {
   AgentConfig,
   Attachment,
   Conversation,
+  ConversationRepoContext,
   GenerationState,
   GenerationType,
+  GitHubRepo,
+  GitHubStatus,
   Message,
   NavView,
   OverviewMetrics,
@@ -17,6 +20,7 @@ import type {
 import {
   agentApi,
   authApi,
+  clearToken,
   conversationApi,
   githubApi,
   overviewApi,
@@ -43,10 +47,6 @@ import { ChatSearchModal } from "./components/chat/ChatSearchModal";
 import { BackIcon, CloseIcon, CodeIcon, MenuIcon, PlusIcon, SearchIcon, SettingsIcon } from "./components/icons/Icons";
 import { useDocumentTitle } from "./hooks/useDocumentTitle";
 import { getViewFromPath, getPathFromView } from "./utils/router";
-import {
-  AskNexarionSelectionHandler,
-  formatSelectionPrompt,
-} from "./components/chat/AskNexarionSelectionHandler";
 
 export const App: React.FC = () => {
 
@@ -150,9 +150,18 @@ export const App: React.FC = () => {
   const [isReviewDetailLoading, setIsReviewDetailLoading] = useState(false);
   const reviewDetailRequestRef = useRef(0);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
+  const [pendingReauthToken, setPendingReauthToken] = useState<string | null>(null);
+  const [pendingReauthError, setPendingReauthError] = useState<string | null>(null);
   const [activeResource, setActiveResource] = useState<ResourceType | null>(null);
   const [isGitHubModalOpen, setIsGitHubModalOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [githubMode, setGithubMode] = useState<boolean>(false);
+  const [githubStatus, setGithubStatus] = useState<GitHubStatus | null>(null);
+  const [isConnectingGitHub, setIsConnectingGitHub] = useState(false);
+  const [activeRepoContext, setActiveRepoContext] = useState<ConversationRepoContext | null>(null);
+  const [liveStatusDetail, setLiveStatusDetail] = useState<string | null>(null);
+  const lastGitHubPromptRef = useRef<string>("");
 
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
@@ -177,6 +186,7 @@ export const App: React.FC = () => {
 
   const [isSendingMessage, setIsSendingMessage] = useState(false);
   const [pendingComposerPrompt, setPendingComposerPrompt] = useState<string | null>(null);
+  const [greetingSeed, setGreetingSeed] = useState(0);
   const abortControllerRef = useRef<AbortController | null>(null);
   const activeStreamControllersRef = useRef<Map<string, AbortController>>(new Map());
   const streamedContentRef = useRef<Map<string, string>>(new Map());
@@ -212,20 +222,6 @@ export const App: React.FC = () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [isMobileMenuOpen]);
-
-  const handleAskNexarion = (selectedText: string) => {
-    const formattedPrompt = formatSelectionPrompt(selectedText);
-    if (!formattedPrompt) return;
-
-    setIsDetailOpen(false);
-    setIsComposerOpen(false);
-
-    if (currentView !== "chat") {
-      navigateTo("chat");
-    }
-
-    setPendingComposerPrompt(formattedPrompt);
-  };
 
   const navigateTo = useCallback(
     (view: NavView, conversationId?: string, replace: boolean = false) => {
@@ -264,6 +260,9 @@ export const App: React.FC = () => {
     (view: NavView) => {
       if (view === currentView) return;
       if (view === "chat") {
+        if (!activeConvIdRef.current) {
+          setGreetingSeed((prev) => prev + 1);
+        }
         navigateTo("chat", activeConvIdRef.current);
       } else {
         navigateTo(view, activeConvIdRef.current);
@@ -289,6 +288,9 @@ export const App: React.FC = () => {
       setCurrentView(prev.view);
       setActiveConversationId(prev.conversationId);
       activeConvIdRef.current = prev.conversationId;
+      if (prev.view === "chat" && !prev.conversationId) {
+        setGreetingSeed((n) => n + 1);
+      }
       setIsSendingMessage(
         prev.conversationId
           ? activeStreamControllersRef.current.has(prev.conversationId)
@@ -308,6 +310,9 @@ export const App: React.FC = () => {
     }
 
     if (currentView !== "chat") {
+      if (!activeConvIdRef.current) {
+        setGreetingSeed((n) => n + 1);
+      }
       navigateTo("chat", activeConvIdRef.current);
       const selectedId = activeConvIdRef.current;
       const isGeneratingSelectedConversation = Boolean(
@@ -443,6 +448,7 @@ export const App: React.FC = () => {
     }
 
     void fetchOverviewMetrics();
+    githubApi.getStatus().then(setGithubStatus).catch(() => setGithubStatus(null));
 
     if (currentUser.github_connected) {
       void fetchPullRequests();
@@ -457,6 +463,7 @@ export const App: React.FC = () => {
 
     agentApi.list().then(setAgents).catch(() => {});
     providerApi.getStatus().then(setProviderStatus).catch(() => {});
+    githubApi.getStatus().then(setGithubStatus).catch(() => {});
 
     try {
 
@@ -479,13 +486,40 @@ export const App: React.FC = () => {
 
     const params = new URLSearchParams(window.location.search);
     const urlToken = params.get("token");
+    const ghCallbackStatus = params.get("github");
     const authError = params.get("auth_error") || params.get("error");
+    const requestedView = params.get("view");
+    const reauthDeleteToken = params.get("reauth_delete_token");
+    const reauthError = params.get("reauth_error");
 
     if (urlToken) {
       setToken(urlToken);
       const cleanPath =
         window.location.pathname === "/auth/google/callback" ? "/" : window.location.pathname;
       window.history.replaceState({}, document.title, cleanPath);
+    }
+
+    if (reauthDeleteToken) {
+      setPendingReauthToken(reauthDeleteToken);
+      setPendingReauthError(null);
+    }
+    if (reauthError) {
+      setPendingReauthError(
+        reauthError === "google_account_mismatch" || reauthError === "github_account_mismatch"
+          ? "The OAuth account you signed in with does not match this Nexarion account."
+          : `Re-authentication failed (${reauthError}). Please try again.`
+      );
+    }
+    if (requestedView === "settings" || reauthDeleteToken || reauthError) {
+      setCurrentView("settings");
+      window.history.replaceState({}, document.title, "/settings");
+    }
+
+    if (ghCallbackStatus === "connected") {
+      setGithubMode(true);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (ghCallbackStatus === "error") {
+      window.history.replaceState({}, document.title, window.location.pathname);
     }
 
     if (authError) {
@@ -499,6 +533,7 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (!activeConversationId) {
       setActiveConversation(null);
+      setActiveRepoContext(null);
       setIsLoadingActiveConversation(false);
       return;
     }
@@ -513,6 +548,21 @@ export const App: React.FC = () => {
     const requestedId = activeConversationId;
     let isCurrent = true;
     setIsLoadingActiveConversation(true);
+    githubApi
+      .getConversationRepo(requestedId)
+      .then((ctx) => {
+        if (isCurrent && activeConvIdRef.current === requestedId) {
+          setActiveRepoContext(ctx);
+          if (ctx) {
+            setGithubMode(true);
+          }
+        }
+      })
+      .catch(() => {
+        if (isCurrent && activeConvIdRef.current === requestedId) {
+          setActiveRepoContext(null);
+        }
+      });
     conversationApi
       .get(requestedId)
       .then((conv) => {
@@ -582,9 +632,16 @@ export const App: React.FC = () => {
     provider?: string,
     model?: string,
     attachments?: Attachment[],
-    startNewConversation = false
+    startNewConversation = false,
+    explicitGithubRepo?: string,
+    selectedText?: string,
+    selectedMessageId?: string
   ) => {
     if (isSendingMessage && !startNewConversation) return;
+    if (githubMode) {
+      lastGitHubPromptRef.current = content;
+    }
+    setLiveStatusDetail(null);
 
     const targetConvId = startNewConversation ? undefined : activeConversationId;
     const streamKey = targetConvId || `pending-${Date.now()}`;
@@ -689,9 +746,47 @@ export const App: React.FC = () => {
           provider: targetProvider,
           model: effectiveModel,
           attachmentIds,
+          githubMode,
+          githubRepo: explicitGithubRepo || activeRepoContext?.repository_full_name,
+          selectedText,
+          selectedMessageId,
         },
         {
           signal: abortController.signal,
+          onStatus: (evt) => {
+            if (activeConvIdRef.current === (streamConversationId || targetConvId || undefined)) {
+              setLiveStatusDetail(evt.detail || null);
+            }
+          },
+          onRepoMeta: (meta) => {
+            setActiveRepoContext((prev) => ({
+              conversation_id: streamConversationId || targetConvId || prev?.conversation_id || "",
+              repository_full_name: meta.repository,
+              default_branch: meta.branch,
+              selected_branch: meta.branch,
+              last_inspected_commit: meta.commit_sha || null,
+            }));
+            setActiveConversation((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                messages: (prev.messages || []).map((m) =>
+                  m.id === asstTempId ? { ...m, repoMeta: meta } : m
+                ),
+              };
+            });
+          },
+          onRepoSelect: (evt) => {
+            setActiveConversation((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                messages: (prev.messages || []).map((m) =>
+                  m.id === asstTempId ? { ...m, repoCandidates: evt.candidates } : m
+                ),
+              };
+            });
+          },
           onInit: (metadata) => {
             streamConversationId = metadata.id;
             activeStreamControllersRef.current.delete(streamKey);
@@ -803,6 +898,7 @@ export const App: React.FC = () => {
             });
           },
           onDone: (data) => {
+            setLiveStatusDetail(null);
             streamedContentRef.current.delete(streamConversationId || targetConvId || streamKey);
             streamingMessageIdsRef.current.delete(streamConversationId || targetConvId || streamKey);
             if (data.conversation_id) {
@@ -857,6 +953,7 @@ export const App: React.FC = () => {
             });
           },
           onError: (err) => {
+            setLiveStatusDetail(null);
             streamedContentRef.current.delete(streamConversationId || targetConvId || streamKey);
             streamingMessageIdsRef.current.delete(streamConversationId || targetConvId || streamKey);
             if (activeConvIdRef.current !== (streamConversationId || targetConvId || undefined)) return;
@@ -1058,9 +1155,45 @@ export const App: React.FC = () => {
           provider: targetProvider,
           model: effectiveModel,
           diffContext,
+          githubMode,
+          githubRepo: activeRepoContext?.repository_full_name,
         },
         {
           signal: abortController.signal,
+          onStatus: (evt) => {
+            if (activeConvIdRef.current === activeConversationId) {
+              setLiveStatusDetail(evt.detail || null);
+            }
+          },
+          onRepoMeta: (meta) => {
+            setActiveRepoContext(() => ({
+              conversation_id: activeConversationId,
+              repository_full_name: meta.repository,
+              default_branch: meta.branch,
+              selected_branch: meta.branch,
+              last_inspected_commit: meta.commit_sha || null,
+            }));
+            setActiveConversation((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                messages: (prev.messages || []).map((m) =>
+                  m.id === targetMsgId ? { ...m, repoMeta: meta } : m
+                ),
+              };
+            });
+          },
+          onRepoSelect: (evt) => {
+            setActiveConversation((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                messages: (prev.messages || []).map((m) =>
+                  m.id === targetMsgId ? { ...m, repoCandidates: evt.candidates } : m
+                ),
+              };
+            });
+          },
           onToken: (chunk) => {
             setGenerationState("streaming");
             setWaveState("responding");
@@ -1242,9 +1375,45 @@ export const App: React.FC = () => {
           provider: targetProvider,
           model: effectiveModel,
           attachmentIds: effectiveAttachmentIds,
+          githubMode,
+          githubRepo: activeRepoContext?.repository_full_name,
         },
         {
           signal: abortController.signal,
+          onStatus: (evt) => {
+            if (activeConvIdRef.current === targetConvId) {
+              setLiveStatusDetail(evt.detail || null);
+            }
+          },
+          onRepoMeta: (meta) => {
+            setActiveRepoContext(() => ({
+              conversation_id: targetConvId,
+              repository_full_name: meta.repository,
+              default_branch: meta.branch,
+              selected_branch: meta.branch,
+              last_inspected_commit: meta.commit_sha || null,
+            }));
+            setActiveConversation((prev) => {
+              if (!prev || prev.id !== targetConvId) return prev;
+              return {
+                ...prev,
+                messages: (prev.messages || []).map((m) =>
+                  m.id === asstTempId ? { ...m, repoMeta: meta } : m
+                ),
+              };
+            });
+          },
+          onRepoSelect: (evt) => {
+            setActiveConversation((prev) => {
+              if (!prev || prev.id !== targetConvId) return prev;
+              return {
+                ...prev,
+                messages: (prev.messages || []).map((m) =>
+                  m.id === asstTempId ? { ...m, repoCandidates: evt.candidates } : m
+                ),
+              };
+            });
+          },
           onSaved: () => {
             if (onSaved) onSaved();
           },
@@ -1377,6 +1546,7 @@ export const App: React.FC = () => {
     setIsMobileNavOpen(false);
     setActiveConversation(null);
     setIsLoadingActiveConversation(false);
+    setGreetingSeed((prev) => prev + 1);
     navigateTo("chat", undefined);
   }, [isSendingMessage, navigateTo]);
 
@@ -1660,9 +1830,42 @@ export const App: React.FC = () => {
 
     } finally {
       clearUserData();
+      setGithubStatus(null);
+      setGithubMode(false);
+      setActiveRepoContext(null);
       navigateTo("chat", undefined);
       setIsAuthOpen(true);
     }
+  };
+
+  const handleAccountDeleted = () => {
+    for (const ctrl of activeStreamControllersRef.current.values()) {
+      try {
+        ctrl.abort();
+      } catch {
+
+      }
+    }
+    activeStreamControllersRef.current.clear();
+    if (abortControllerRef.current) {
+      try {
+        abortControllerRef.current.abort();
+      } catch {
+
+      }
+      abortControllerRef.current = null;
+    }
+    clearToken();
+    clearUserData();
+    setGithubStatus(null);
+    setGithubMode(false);
+    setActiveRepoContext(null);
+    setLiveStatusDetail(null);
+    setPendingReauthToken(null);
+    setPendingReauthError(null);
+    navigateTo("chat", undefined, true);
+    setAuthNotice("Your Nexarion account and all associated data have been permanently deleted.");
+    setIsAuthOpen(true);
   };
 
   return (
@@ -1932,7 +2135,27 @@ export const App: React.FC = () => {
                 user={user}
                 generationState={generationState}
                 generationType={generationType}
-                onSendMessage={handleSendMessage}
+                onSendMessage={(
+                  content,
+                  diffContext,
+                  provider,
+                  model,
+                  attachments,
+                  selectedText,
+                  selectedMessageId
+                ) =>
+                  handleSendMessage(
+                    content,
+                    diffContext,
+                    provider,
+                    model,
+                    attachments,
+                    false,
+                    undefined,
+                    selectedText,
+                    selectedMessageId
+                  )
+                }
                 onEditMessage={handleEditMessage}
                 onNewConversation={handleNewChat}
                 onDeleteConversation={handleDeleteConversation}
@@ -1955,6 +2178,60 @@ export const App: React.FC = () => {
                 onStopGeneration={handleStopGeneration}
                 initialPrompt={pendingComposerPrompt}
                 onPromptConsumed={() => setPendingComposerPrompt(null)}
+                greetingSeed={greetingSeed}
+                githubMode={githubMode}
+                onToggleGitHubMode={(next) => {
+                  const target = typeof next === "boolean" ? next : !githubMode;
+                  setGithubMode(target);
+                  if (target) {
+                    githubApi.getStatus().then(setGithubStatus).catch(() => {});
+                  }
+                }}
+                githubStatus={githubStatus}
+                isConnectingGitHub={isConnectingGitHub}
+                activeRepoContext={activeRepoContext}
+                liveStatusDetail={liveStatusDetail}
+                onConnectGitHub={async () => {
+                  if (!user) {
+                    setIsAuthOpen(true);
+                    return;
+                  }
+                  setIsConnectingGitHub(true);
+                  try {
+                    const oauthRes = await githubApi.getAuthUrl(window.location.origin);
+                    if (oauthRes.url) {
+                      window.location.href = oauthRes.url;
+                      return;
+                    }
+                    handleSelectView("settings");
+                  } catch {
+                    handleSelectView("settings");
+                  } finally {
+                    setIsConnectingGitHub(false);
+                  }
+                }}
+                onOpenGitHubSettings={() => handleSelectView("settings")}
+                onSelectRepoCandidate={async (repo: GitHubRepo) => {
+                  if (activeConversationId) {
+                    try {
+                      const ctx = await githubApi.setConversationRepo(activeConversationId, {
+                        repository_full_name: repo.full_name,
+                        repository_id: String(repo.id),
+                        default_branch: repo.default_branch,
+                        selected_branch: repo.default_branch,
+                      });
+                      setActiveRepoContext(ctx);
+                    } catch (err) {
+                      console.warn("Failed saving repo selection:", err);
+                    }
+                  }
+                  const resumePrompt =
+                    lastGitHubPromptRef.current &&
+                    !lastGitHubPromptRef.current.toLowerCase().includes(repo.full_name.toLowerCase())
+                      ? `${lastGitHubPromptRef.current} (Repository: ${repo.full_name})`
+                      : `Inspect ${repo.full_name}`;
+                  void handleSendMessage(resumePrompt, undefined, undefined, undefined, undefined, false, repo.full_name);
+                }}
               />
             </div>
 
@@ -2014,10 +2291,22 @@ export const App: React.FC = () => {
                   user={user}
                   onUserUpdated={(updatedUser) => {
                     setUser(updatedUser);
+                    try {
+                      sessionStorage.setItem("nexarion_user_cache", JSON.stringify(updatedUser));
+                    } catch {
+
+                    }
                     if (updatedUser.github_connected) {
                       fetchPullRequests();
                       fetchOverviewMetrics();
                     }
+                  }}
+                  onAccountDeleted={handleAccountDeleted}
+                  pendingReauthToken={pendingReauthToken}
+                  pendingReauthError={pendingReauthError}
+                  onClearPendingReauth={() => {
+                    setPendingReauthToken(null);
+                    setPendingReauthError(null);
                   }}
                 />
               </div>
@@ -2056,8 +2345,14 @@ export const App: React.FC = () => {
 
       <AuthModal
         isOpen={isAuthOpen}
-        onClose={() => setIsAuthOpen(false)}
+        onClose={() => {
+          setIsAuthOpen(false);
+          setAuthNotice(null);
+        }}
+        notice={authNotice}
+        onClearNotice={() => setAuthNotice(null)}
         onSuccess={(newUser) => {
+          setAuthNotice(null);
           setUser(newUser);
           loadUserData(newUser);
         }}
@@ -2101,8 +2396,6 @@ export const App: React.FC = () => {
         }}
         onOpenSettings={() => navigateTo("settings")}
       />
-
-      <AskNexarionSelectionHandler onAskNexarion={handleAskNexarion} />
 
       <ChatSearchModal
         isOpen={isSearchOpen}

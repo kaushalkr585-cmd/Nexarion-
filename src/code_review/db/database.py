@@ -50,8 +50,38 @@ def init_database() -> None:
 
     with engine.begin() as conn:
         inspector = inspect(conn)
-        if "conversations" in inspector.get_table_names():
-            columns = [c["name"] for c in inspector.get_columns("conversations")]
+        table_names = set(inspector.get_table_names())
+
+        if "users" in table_names:
+            cols_info = inspector.get_columns("users")
+            user_cols = {c["name"]: c for c in cols_info}
+            if "token_version" not in user_cols:
+                conn.execute(
+                    text("ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 1")
+                )
+            if "password_changed_at" not in user_cols:
+                col_type = (
+                    "TIMESTAMP WITH TIME ZONE"
+                    if conn.dialect.name == "postgresql"
+                    else "TIMESTAMP"
+                )
+                conn.execute(
+                    text(
+                        f"ALTER TABLE users ADD COLUMN password_changed_at {col_type} DEFAULT NULL"
+                    )
+                )
+            elif conn.dialect.name == "postgresql":
+                col_type_str = str(user_cols["password_changed_at"]["type"]).upper()
+                if "TIME ZONE" not in col_type_str and "TIMESTAMPTZ" not in col_type_str:
+                    conn.execute(
+                        text(
+                            "ALTER TABLE users ALTER COLUMN password_changed_at "
+                            "TYPE TIMESTAMP WITH TIME ZONE"
+                        )
+                    )
+
+        if "conversations" in table_names:
+            columns = {c["name"] for c in inspector.get_columns("conversations")}
             if "is_pinned" not in columns:
                 conn.execute(
                     text("ALTER TABLE conversations ADD COLUMN is_pinned BOOLEAN DEFAULT FALSE")
@@ -77,14 +107,14 @@ def init_database() -> None:
                 )
 
         if conn.dialect.name == "postgresql":
-            if "conversation_memories" in inspector.get_table_names():
+            if "conversation_memories" in table_names:
                 conn.execute(
                     text(
                         "CREATE INDEX IF NOT EXISTS idx_memories_content_fts "
                         "ON conversation_memories USING gin(to_tsvector('english', content))"
                     )
                 )
-            if "conversations" in inspector.get_table_names():
+            if "conversations" in table_names:
                 conn.execute(
                     text(
                         "CREATE INDEX IF NOT EXISTS idx_conversations_summary_fts "
@@ -97,11 +127,26 @@ def init_database() -> None:
                         "ON conversations (user_id, is_archived, updated_at DESC)"
                     )
                 )
-            if "messages" in inspector.get_table_names():
+            if "messages" in table_names:
                 conn.execute(
                     text(
                         "CREATE INDEX IF NOT EXISTS idx_messages_conv_created "
                         "ON messages (conversation_id, created_at ASC)"
                     )
                 )
+
+        if "github_connections" in table_names:
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_github_conn_user_status "
+                    "ON github_connections (user_id, connection_status)"
+                )
+            )
+        if "conversation_repository_contexts" in table_names:
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_conv_repo_ctx_user "
+                    "ON conversation_repository_contexts (user_id, conversation_id)"
+                )
+            )
     logger.info("Database schema initialized successfully.")

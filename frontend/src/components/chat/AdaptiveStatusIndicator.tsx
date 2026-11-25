@@ -6,6 +6,7 @@ interface AdaptiveStatusIndicatorProps {
   type?: GenerationType;
   className?: string;
   showAvatar?: boolean;
+  overrideMessage?: string | null;
 }
 
 const STATUS_MESSAGES: Record<
@@ -115,6 +116,7 @@ export const AdaptiveStatusIndicator: React.FC<AdaptiveStatusIndicatorProps> = (
   type = "chat",
   className = "",
   showAvatar = true,
+  overrideMessage = null,
 }) => {
   const modeKey: "chat" | "diff" | "review" = type === "review" ? "review" : type === "diff" ? "diff" : "chat";
   const messages = STATUS_MESSAGES[state]?.[modeKey] || STATUS_MESSAGES.thinking.chat;
@@ -153,7 +155,7 @@ export const AdaptiveStatusIndicator: React.FC<AdaptiveStatusIndicatorProps> = (
     return () => clearInterval(interval);
   }, [state, type, messages.length]);
 
-  const currentText = messages[messageIndex % messages.length];
+  const currentText = overrideMessage || messages[messageIndex % messages.length];
 
   const isAnimated =
     state === "submitting" ||

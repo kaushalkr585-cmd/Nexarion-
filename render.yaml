@@ -16,6 +16,8 @@ services:
         generateValue: true
       - key: FRONTEND_URL
         sync: false
+      - key: BACKEND_URL
+        sync: false
       - key: DATABASE_URL
         sync: false
       - key: LLM_PROVIDER
@@ -37,6 +39,12 @@ services:
       - key: GOOGLE_CLIENT_SECRET
         sync: false
       - key: GOOGLE_REDIRECT_URI
+        sync: false
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_REDIRECT_URI
         sync: false
       - key: GITHUB_TOKEN
         sync: false

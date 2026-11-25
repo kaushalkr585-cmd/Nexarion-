@@ -2,6 +2,7 @@ import type {
   AgentConfig,
   Attachment,
   Conversation,
+  ConversationRepoContext,
   ConversationSearchResult,
   GitHubPullRequest,
   GitHubRepo,
@@ -185,6 +186,9 @@ async function readSSEStream(
   response: Response,
   callbacks: {
     onInit?: (metadata: { id: string; title: string }) => void;
+    onStatus?: (evt: { stage: string; detail: string }) => void;
+    onRepoSelect?: (evt: { candidates: GitHubRepo[]; message: string }) => void;
+    onRepoMeta?: (evt: { repository: string; branch: string; commit_sha?: string | null }) => void;
     onToken?: (token: string) => void;
     onDone?: (data: {
       conversation_id: string;
@@ -232,6 +236,12 @@ async function readSSEStream(
           const parsed = JSON.parse(dataStr);
           if (eventType === "init" && callbacks.onInit) {
             callbacks.onInit(parsed);
+          } else if (eventType === "status" && callbacks.onStatus) {
+            callbacks.onStatus(parsed);
+          } else if (eventType === "repo_select" && callbacks.onRepoSelect) {
+            callbacks.onRepoSelect(parsed);
+          } else if (eventType === "repo_meta" && callbacks.onRepoMeta) {
+            callbacks.onRepoMeta(parsed);
           } else if (eventType === "token" && callbacks.onToken) {
             callbacks.onToken(parsed.chunk);
           } else if (eventType === "done" && callbacks.onDone) {
@@ -282,9 +292,61 @@ export const authApi = {
     return res;
   },
 
-  async getGoogleAuthUrl(origin?: string): Promise<{ url: string }> {
-    const originParam = encodeURIComponent(origin || window.location.origin);
-    return request<{ url: string }>(`/api/auth/google/url?origin=${originParam}`);
+  async changePassword(payload: {
+    current_password?: string;
+    new_password: string;
+  }): Promise<{ token: string; user: User }> {
+    const res = await request<{ token: string; user: User }>("/api/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    if (res.token) setToken(res.token);
+    return res;
+  },
+
+  async requestPasswordReset(email: string): Promise<{ message: string; delivery_configured?: boolean }> {
+    return request<{ message: string; delivery_configured?: boolean }>(
+      "/api/auth/password-reset/request",
+      {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      }
+    );
+  },
+
+  async confirmPasswordReset(token: string, new_password: string): Promise<{ message: string }> {
+    return request<{ message: string }>("/api/auth/password-reset/confirm", {
+      method: "POST",
+      body: JSON.stringify({ token, new_password }),
+    });
+  },
+
+  async revokeOtherSessions(): Promise<{ token: string; user: User }> {
+    const res = await request<{ token: string; user: User }>("/api/auth/sessions/revoke-all", {
+      method: "POST",
+    });
+    if (res.token) setToken(res.token);
+    return res;
+  },
+
+  async reauthWithPassword(password: string): Promise<{ reauth_token: string; expires_in: number }> {
+    return request<{ reauth_token: string; expires_in: number }>("/api/auth/reauth/password", {
+      method: "POST",
+      body: JSON.stringify({ password }),
+    });
+  },
+
+  async getGoogleAuthUrl(
+    origin?: string,
+    intent?: "login" | "reauth_delete"
+  ): Promise<{ url: string; configured?: boolean }> {
+    const params = new URLSearchParams({
+      origin: origin || window.location.origin,
+    });
+    if (intent) params.set("intent", intent);
+    return request<{ url: string; configured?: boolean }>(
+      `/api/auth/google/url?${params.toString()}`
+    );
   },
 
   async getMe(): Promise<User> {
@@ -387,9 +449,16 @@ export const conversationApi = {
       provider?: string;
       model?: string;
       attachmentIds?: string[];
+      githubMode?: boolean;
+      githubRepo?: string;
+      selectedText?: string;
+      selectedMessageId?: string;
     },
     callbacks: {
       onInit?: (metadata: { id: string; title: string }) => void;
+      onStatus?: (evt: { stage: string; detail: string }) => void;
+      onRepoSelect?: (evt: { candidates: GitHubRepo[]; message: string }) => void;
+      onRepoMeta?: (evt: { repository: string; branch: string; commit_sha?: string | null }) => void;
       onToken?: (token: string) => void;
       onDone?: (data: {
         conversation_id: string;
@@ -421,6 +490,10 @@ export const conversationApi = {
           provider: payload.provider,
           model: payload.model,
           attachment_ids: payload.attachmentIds || [],
+          github_mode: Boolean(payload.githubMode),
+          github_repo: payload.githubRepo || undefined,
+          selected_text: payload.selectedText || undefined,
+          selected_message_id: payload.selectedMessageId || undefined,
         })
       : JSON.stringify({
           initial_message: payload.content,
@@ -428,6 +501,8 @@ export const conversationApi = {
           provider: payload.provider,
           model: payload.model,
           attachment_ids: payload.attachmentIds || [],
+          github_mode: Boolean(payload.githubMode),
+          github_repo: payload.githubRepo || undefined,
         });
 
     const response = await fetch(endpoint, {
@@ -468,8 +543,13 @@ export const conversationApi = {
       provider?: string;
       model?: string;
       diffContext?: string;
+      githubMode?: boolean;
+      githubRepo?: string;
     },
     callbacks: {
+      onStatus?: (evt: { stage: string; detail: string }) => void;
+      onRepoSelect?: (evt: { candidates: GitHubRepo[]; message: string }) => void;
+      onRepoMeta?: (evt: { repository: string; branch: string; commit_sha?: string | null }) => void;
       onToken?: (token: string) => void;
       onDone?: (data: {
         conversation_id: string;
@@ -498,6 +578,8 @@ export const conversationApi = {
         provider: payload.provider,
         model: payload.model,
         diff_context: payload.diffContext,
+        github_mode: Boolean(payload.githubMode),
+        github_repo: payload.githubRepo || undefined,
       }),
       signal: callbacks.signal,
     });
@@ -561,8 +643,13 @@ export const conversationApi = {
       provider?: string;
       model?: string;
       attachmentIds?: string[];
+      githubMode?: boolean;
+      githubRepo?: string;
     },
     callbacks: {
+      onStatus?: (evt: { stage: string; detail: string }) => void;
+      onRepoSelect?: (evt: { candidates: GitHubRepo[]; message: string }) => void;
+      onRepoMeta?: (evt: { repository: string; branch: string; commit_sha?: string | null }) => void;
       onToken?: (token: string) => void;
       onDone?: (data: {
         conversation_id: string;
@@ -595,6 +682,8 @@ export const conversationApi = {
           provider: payload.provider,
           model: payload.model,
           attachment_ids: payload.attachmentIds || [],
+          github_mode: Boolean(payload.githubMode),
+          github_repo: payload.githubRepo || undefined,
         }),
         signal: callbacks.signal,
       }
@@ -962,6 +1051,20 @@ export const userApi = {
     }
     return res.json();
   },
+
+  async deleteAccount(payload: {
+    confirmation_text: string;
+    password?: string;
+    reauth_token?: string;
+    github_pat?: string;
+  }): Promise<{ status: string; message: string }> {
+    const res = await request<{ status: string; message: string }>("/api/users/me", {
+      method: "DELETE",
+      body: JSON.stringify(payload),
+    });
+    clearToken();
+    return res;
+  },
 };
 
 export const githubApi = {
@@ -969,8 +1072,42 @@ export const githubApi = {
     return request<GitHubStatus>("/api/github/status");
   },
 
-  async getAuthUrl(): Promise<{ url: string }> {
-    return request<{ url: string }>("/api/github/auth-url");
+  async getAuthUrl(origin?: string): Promise<{ url: string; configured?: boolean; message?: string }> {
+    const query = origin ? `?origin=${encodeURIComponent(origin)}` : "";
+    return request<{ url: string; configured?: boolean; message?: string }>(`/api/github/auth-url${query}`);
+  },
+
+  async getReauthUrl(origin?: string): Promise<{ url: string; configured?: boolean; message?: string }> {
+    const query = origin ? `?origin=${encodeURIComponent(origin)}` : "";
+    return request<{ url: string; configured?: boolean; message?: string }>(
+      `/api/github/reauth-url${query}`
+    );
+  },
+
+  async getAppInstallUrl(origin?: string): Promise<{ url: string; configured: boolean; message?: string }> {
+    const query = origin ? `?origin=${encodeURIComponent(origin)}` : "";
+    return request<{ url: string; configured: boolean; message?: string }>(
+      `/api/github/app/install-url${query}`
+    );
+  },
+
+  async getConversationRepo(conversationId: string): Promise<ConversationRepoContext | null> {
+    return request<ConversationRepoContext | null>(`/api/github/context/${conversationId}`);
+  },
+
+  async setConversationRepo(
+    conversationId: string,
+    payload: {
+      repository_full_name: string;
+      repository_id?: string | null;
+      default_branch?: string;
+      selected_branch?: string;
+    }
+  ): Promise<ConversationRepoContext> {
+    return request<ConversationRepoContext>(`/api/github/context/${conversationId}`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
   },
 
   async connect(token: string): Promise<GitHubStatus> {

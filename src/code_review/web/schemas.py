@@ -9,12 +9,43 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 class SignupRequest(BaseModel):
     name: str = Field(..., min_length=2, max_length=100)
     email: EmailStr
-    password: str = Field(..., min_length=6)
+    password: str = Field(..., min_length=1, max_length=128)
 
 
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str | None = Field(default=None, max_length=128)
+    new_password: str = Field(..., min_length=1, max_length=128)
+
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    token: str = Field(..., min_length=8, max_length=512)
+    new_password: str = Field(..., min_length=1, max_length=128)
+
+
+class PasswordStrengthCheckRequest(BaseModel):
+    password: str = Field(..., max_length=128)
+    name: str | None = None
+    email: str | None = None
+
+
+class ReauthPasswordRequest(BaseModel):
+    password: str = Field(..., min_length=1, max_length=128)
+
+
+class AccountDeletionRequest(BaseModel):
+    confirmation_text: str = Field(..., min_length=1, max_length=32)
+    password: str | None = Field(default=None, max_length=128)
+    reauth_token: str | None = Field(default=None, max_length=1024)
+    github_pat: str | None = Field(default=None, max_length=512)
 
 
 class UserResponse(BaseModel):
@@ -30,6 +61,8 @@ class UserResponse(BaseModel):
     github_username: str | None = None
     auth_provider: str = "local"
     google_email: str | None = None
+    google_linked: bool = False
+    has_password: bool = False
     email_verified: bool = True
     pending_email: str | None = None
     created_at: datetime
@@ -207,6 +240,10 @@ class MessageCreateRequest(BaseModel):
     model: str | None = None
     diff_context: str | None = None
     attachment_ids: list[str] = Field(default_factory=list)
+    github_mode: bool = False
+    github_repo: str | None = None
+    selected_text: str | None = Field(default=None, max_length=4000)
+    selected_message_id: str | None = Field(default=None, max_length=100)
 
 
 class MessageResponse(BaseModel):
@@ -232,6 +269,8 @@ class MessageRegenerateRequest(BaseModel):
     provider: str | None = None
     model: str | None = None
     diff_context: str | None = None
+    github_mode: bool = False
+    github_repo: str | None = None
 
 
 class MessageEditRequest(BaseModel):
@@ -240,6 +279,10 @@ class MessageEditRequest(BaseModel):
     model: str | None = None
     diff_context: str | None = None
     attachment_ids: list[str] = Field(default_factory=list)
+    github_mode: bool = False
+    github_repo: str | None = None
+    selected_text: str | None = Field(default=None, max_length=4000)
+    selected_message_id: str | None = Field(default=None, max_length=100)
 
 
 class AttachmentContentResponse(BaseModel):
@@ -259,6 +302,8 @@ class ConversationCreateRequest(BaseModel):
     provider: str | None = None
     model: str | None = None
     attachment_ids: list[str] = Field(default_factory=list)
+    github_mode: bool = False
+    github_repo: str | None = None
 
 
 class ConversationResponse(BaseModel):

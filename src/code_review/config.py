@@ -1,6 +1,7 @@
 from functools import lru_cache
-from typing import Literal
+from typing import Any, Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,6 +20,16 @@ class Settings(BaseSettings):
 
     debug: bool = False
     """Enables extra validation and verbose error messages in non-production environments."""
+
+    @field_validator("debug", mode="before")
+    @classmethod
+    def _parse_debug(cls, v: Any) -> bool:
+        if isinstance(v, str):
+            clean = v.strip().lower()
+            if clean in ("true", "1", "t", "yes", "y", "debug", "dev", "development"):
+                return True
+            return False
+        return bool(v)
 
     llm_provider: str = "llm"
     """Active LLM provider ('ollama', 'llm', or 'nvidia')."""
@@ -113,14 +124,26 @@ class Settings(BaseSettings):
     github_client_secret: str = ""
     """GitHub OAuth App client secret."""
 
+    github_redirect_uri: str = "http://localhost:8000/api/github/callback"
+    """GitHub OAuth callback redirect URI."""
+
     github_webhook_secret: str = ""
     """GitHub webhook signature verification secret."""
 
     github_app_id: str = ""
     """GitHub App ID for bot-driven installation access."""
 
+    github_app_slug: str = ""
+    """GitHub App URL slug (e.g. 'nexarion-ai') used for installation redirect URLs."""
+
     github_app_private_key: str = ""
     """GitHub App private RSA key in PEM format or path to key file."""
+
+    github_app_install_callback_uri: str = "http://localhost:8000/api/github/app/callback"
+    """GitHub App post-installation callback URI."""
+
+    github_credential_encryption_key: str = ""
+    """Optional Fernet key for encrypting GitHub tokens at rest (defaults to derived session_secret)."""
 
     github_auto_review: bool = True
     """Whether incoming PR webhooks automatically trigger a multi-agent review."""

@@ -355,16 +355,10 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
 
         <div className="p-3.5 sm:p-4 pt-[max(0.875rem,env(safe-area-inset-top))] border-b border-white/10 flex-shrink-0">
           <div className="flex items-center justify-between mb-3.5">
-            <div
-              className="cursor-pointer group flex-1 min-w-0"
-              onClick={() => {
-                onSelectView("chat");
-                if (onCloseMobile) onCloseMobile();
-              }}
-            >
+            <div className="flex-1 min-w-0 select-none">
               <div className="flex items-center gap-2.5">
                 <LogoIcon size={25} />
-                <span className="font-semibold text-[15px] tracking-wider text-white group-hover:text-neutral-200 transition-colors">
+                <span className="font-semibold text-[15px] tracking-wider text-white">
                   NEXARION
                 </span>
               </div>

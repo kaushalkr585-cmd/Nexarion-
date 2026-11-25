@@ -183,3 +183,149 @@ class OllamaClient:
             raise OllamaConnectionError(
                 f"Cannot connect to Ollama at {chat_url}: {exc.reason}"
             ) from exc
+
+    def chat_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        *,
+        temperature: float | None = None,
+    ) -> dict[str, Any]:
+        """Execute an Ollama /api/chat request with tool calling and prompt fallback."""
+        chat_url = f"{self.base_url}/api/chat"
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "stream": False,
+            "keep_alive": "30m",
+            "options": {
+                "temperature": (temperature if temperature is not None else self.temperature),
+                "num_ctx": 8192,
+            },
+        }
+        if tools:
+            payload["tools"] = tools
+
+        body_bytes = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            chat_url,
+            data=body_bytes,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:  # nosec B310
+                data = json.loads(resp.read().decode("utf-8"))
+                msg = data.get("message", {}) or {}
+                raw_calls = msg.get("tool_calls") or []
+                parsed_calls: list[dict[str, Any]] = []
+                for i, tc in enumerate(raw_calls):
+                    fn = tc.get("function") or {}
+                    raw_args = fn.get("arguments", {})
+                    if isinstance(raw_args, str):
+                        stripped = raw_args.strip()
+                        if not stripped:
+                            args = {}
+                        else:
+                            try:
+                                loaded = json.loads(stripped)
+                                if isinstance(loaded, dict):
+                                    args = loaded
+                                else:
+                                    args = {
+                                        "_malformed_arguments": True,
+                                        "_parse_error": "Tool arguments JSON must decode to an object.",
+                                        "_raw_arguments": raw_args[:500],
+                                    }
+                            except json.JSONDecodeError as exc:
+                                args = {
+                                    "_malformed_arguments": True,
+                                    "_parse_error": f"Invalid JSON in tool arguments: {exc}",
+                                    "_raw_arguments": raw_args[:500],
+                                }
+                    elif isinstance(raw_args, dict):
+                        args = raw_args
+                    else:
+                        args = {
+                            "_malformed_arguments": True,
+                            "_parse_error": f"Unsupported tool arguments type: {type(raw_args).__name__}",
+                        }
+                    parsed_calls.append(
+                        {
+                            "id": tc.get("id") or f"ollama_call_{i}",
+                            "name": str(fn.get("name") or "").strip(),
+                            "arguments": args,
+                        }
+                    )
+                return {
+                    "content": msg.get("content") or "",
+                    "tool_calls": parsed_calls,
+                    "raw_tool_calls": raw_calls,
+                }
+        except urllib.error.HTTPError as exc:
+            err_body = exc.read().decode("utf-8", errors="replace")
+            if exc.code in (400, 404, 422) and tools:
+                logger.warning("Ollama model does not support native tools; using JSON fallback.")
+                return self._fallback_prompt_tool_call(messages, tools, temperature=temperature)
+            raise OllamaResponseError(
+                f"Ollama HTTP {exc.code}: {exc.reason} - {err_body}"
+            ) from exc
+        except TimeoutError as exc:
+            raise OllamaTimeoutError(f"Request to Ollama timed out after {self.timeout}s") from exc
+        except urllib.error.URLError as exc:
+            raise OllamaConnectionError(
+                f"Cannot connect to Ollama at {chat_url}: {exc.reason}"
+            ) from exc
+
+    def _fallback_prompt_tool_call(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        *,
+        temperature: float | None = None,
+    ) -> dict[str, Any]:
+        tool_summaries = [
+            {
+                "name": t["function"]["name"],
+                "description": t["function"].get("description", ""),
+                "parameters": t["function"].get("parameters", {}),
+            }
+            for t in tools
+            if "function" in t
+        ]
+        adapter_sys = (
+            "You have access to these tools. Respond ONLY with JSON: "
+            '{"tool_calls": [{"name": "<tool>", "arguments": {...}}]} or '
+            '{"final_answer": "<markdown answer>"}.\n'
+            f"TOOLS:\n{json.dumps(tool_summaries)}"
+        )
+        plain_msgs = [
+            {"role": str(m.get("role", "user")), "content": str(m.get("content", ""))}
+            for m in messages
+            if m.get("role") in ("system", "user", "assistant")
+        ]
+        plain_msgs.insert(0, {"role": "system", "content": adapter_sys})
+        raw = self.chat(plain_msgs, json_format=True, temperature=temperature)
+        try:
+            parsed = json.loads(raw)
+            calls = parsed.get("tool_calls") or []
+            norm_calls = [
+                {
+                    "id": f"fb_call_{i}",
+                    "name": c.get("name", ""),
+                    "arguments": c.get("arguments")
+                    if isinstance(c.get("arguments"), dict)
+                    else {},
+                }
+                for i, c in enumerate(calls)
+                if isinstance(c, dict) and c.get("name")
+            ]
+            if norm_calls:
+                return {"content": "", "tool_calls": norm_calls, "raw_tool_calls": []}
+            return {
+                "content": parsed.get("final_answer") or raw,
+                "tool_calls": [],
+                "raw_tool_calls": [],
+            }
+        except json.JSONDecodeError:
+            return {"content": raw, "tool_calls": [], "raw_tool_calls": []}

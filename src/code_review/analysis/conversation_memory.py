@@ -29,6 +29,26 @@ class MemoryExcerpt:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+def _is_poisoned_memory_text(text: str) -> bool:
+    """Prevent leaked raw tool-call JSON or stale no-GitHub error responses from poisoning memory."""
+    s = (text or "").strip()
+    lower = s.lower()
+    if not s:
+        return True
+    if "github_get_file_content" in lower:
+        return True
+    if '{"tool":' in lower or '"tool": "' in lower or '"tool_calls":' in lower:
+        return True
+    if (
+        "since i don't have live github access" in lower
+        or "don't have live github access" in lower
+    ):
+        return True
+    if s.startswith("{") and ('"path":' in s or '"sha":' in s) and '"content":' in s:
+        return True
+    return False
+
+
 class ConversationMemoryManager:
     @classmethod
     def index_message(
@@ -40,7 +60,11 @@ class ConversationMemoryManager:
         content = (message.content or "").strip()
 
         trivial_greetings = ("hi", "hello", "hey", "ok", "thanks", "yes", "no")
-        if len(content) < 8 or content.lower() in trivial_greetings:
+        if (
+            len(content) < 8
+            or content.lower() in trivial_greetings
+            or _is_poisoned_memory_text(content)
+        ):
             return None
 
         effective_user_id = user_id
@@ -359,6 +383,8 @@ class ConversationMemoryManager:
         now = datetime.now(UTC)
 
         for mem_id, (mem, conv_title, conv_created_at) in all_candidates.items():
+            if _is_poisoned_memory_text(mem.content):
+                continue
             kw_score = keyword_scores.get(mem_id, 0.0)
             vec_score = vector_scores.get(mem_id, 0.0)
 
@@ -390,7 +416,9 @@ class ConversationMemoryManager:
         estimated_tokens_used = 0
         seen_contents = set()
 
-        for exc in ranked_excerpts[:max_results]:
+        for exc in ranked_excerpts:
+            if len(packed_excerpts) >= max_results:
+                break
             content_norm = exc.content.strip().lower()[:120]
             if content_norm in seen_contents:
                 continue

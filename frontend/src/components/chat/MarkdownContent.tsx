@@ -31,7 +31,11 @@ export const CodeBlock: React.FC<{ language: string; code: string }> = ({ langua
   };
 
   return (
-    <div className="my-3 rounded-xl overflow-hidden border border-white/15 bg-black/90 font-mono text-xs shadow-md w-full max-w-full">
+    <div
+      data-code-block="true"
+      data-ask-nexarion-ignore="true"
+      className="my-3 rounded-xl overflow-hidden border border-white/15 bg-black/90 font-mono text-xs shadow-md w-full max-w-full"
+    >
 
       <div className="flex items-center justify-between px-4 py-2 bg-white/[0.04] border-b border-white/10 text-neutral-300 text-xs">
         <span className="font-semibold tracking-wider uppercase text-neutral-300">

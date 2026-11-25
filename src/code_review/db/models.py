@@ -34,6 +34,10 @@ class UserRecord(Base):
     auth_provider: Mapped[str] = mapped_column(String(50), default="local", nullable=False)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     pending_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    token_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    password_changed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
@@ -42,6 +46,14 @@ class UserRecord(Base):
     reviews: Mapped[list["ReviewRecord"]] = relationship(
         "ReviewRecord", back_populates="user", cascade="all, delete-orphan"
     )
+
+    @property
+    def has_password(self) -> bool:
+        return bool(self.hashed_password)
+
+    @property
+    def google_linked(self) -> bool:
+        return bool(self.google_id or self.auth_provider == "google")
 
 
 class RepositoryRecord(Base):
@@ -321,3 +333,118 @@ class DocumentChunkRecord(Base):
     attachment: Mapped[AttachmentRecord] = relationship(
         "AttachmentRecord", back_populates="chunks"
     )
+
+
+class GitHubConnectionRecord(Base):
+    __tablename__ = "github_connections"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    auth_method: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="github_app"
+    )  # "github_app" | "oauth" | "pat"
+    github_account_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    github_username: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    installation_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    encrypted_access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    encrypted_refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    token_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    permissions_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), default=dict
+    )
+    connection_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="connected", index=True
+    )  # "connected" | "expired" | "revoked" | "disconnected"
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+
+class ConversationRepositoryContextRecord(Base):
+    __tablename__ = "conversation_repository_contexts"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    conversation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+        nullable=False,
+    )
+    user_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
+    )
+    repository_full_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    repository_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    default_branch: Mapped[str] = mapped_column(String(255), nullable=False, default="main")
+    selected_branch: Mapped[str] = mapped_column(String(255), nullable=False, default="main")
+    last_inspected_commit: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+
+class PasswordResetTokenRecord(Base):
+    __tablename__ = "password_reset_tokens"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class UserSessionRecord(Base):
+    __tablename__ = "user_sessions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    auth_method: Mapped[str] = mapped_column(String(32), default="local", nullable=False)
+    is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, index=True, nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class RevokedSubjectRecord(Base):
+    __tablename__ = "revoked_subjects"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    subject_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    revoked_before: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class SecurityAuditLogRecord(Base):
+    __tablename__ = "security_audit_logs"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    event_type: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    subject_hash: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    auth_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), default=dict
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

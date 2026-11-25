@@ -26,6 +26,9 @@ export interface User {
   github_connected: boolean;
   github_username?: string | null;
   auth_provider?: string;
+  google_email?: string | null;
+  google_linked?: boolean;
+  has_password?: boolean;
   email_verified?: boolean;
   pending_email?: string | null;
   created_at: string;
@@ -55,6 +58,12 @@ export interface Message {
   status?: "sending" | "streaming" | "sent" | "error";
   error?: string;
   attachments?: Attachment[];
+  repoCandidates?: GitHubRepo[];
+  repoMeta?: {
+    repository: string;
+    branch: string;
+    commit_sha?: string | null;
+  };
   created_at: string;
 }
 
@@ -179,6 +188,19 @@ export interface GitHubStatus {
   username?: string | null;
   configured: boolean;
   auth_type: string;
+  auth_method?: string;
+  connection_status?: "connected" | "expired" | "revoked" | "disconnected" | "not_connected" | string;
+  app_configured?: boolean;
+  installation_id?: string | null;
+}
+
+export interface ConversationRepoContext {
+  conversation_id: string;
+  repository_full_name: string;
+  repository_id?: string | null;
+  default_branch: string;
+  selected_branch: string;
+  last_inspected_commit?: string | null;
 }
 
 export interface GitHubRepo {
@@ -190,6 +212,8 @@ export interface GitHubRepo {
   html_url: string;
   default_branch: string;
   description?: string;
+  language?: string;
+  visibility?: string;
   updated_at?: string;
 }
 

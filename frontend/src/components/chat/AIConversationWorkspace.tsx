@@ -1,9 +1,12 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type {
   Attachment,
   Conversation,
+  ConversationRepoContext,
   GenerationState,
   GenerationType,
+  GitHubRepo,
+  GitHubStatus,
   Message,
   ProviderStatusResponse,
   User,
@@ -25,8 +28,8 @@ import {
   FileCodeIcon,
   FilePdfIcon,
   FileTextIcon,
+  GithubIcon,
   HistoryIcon,
-  PaperclipIcon,
   PlusIcon,
   PrIcon,
   StopSquareIcon,
@@ -36,7 +39,9 @@ import { MessageActionToolbar } from "./MessageActionToolbar";
 import type { SelectedModel } from "./ModelSelector";
 import { getPersonalizedGreeting } from "./greetings";
 import { AdaptiveStatusIndicator } from "./AdaptiveStatusIndicator";
+import { AskNexarionSelectionHandler } from "./AskNexarionSelectionHandler";
 import { FilePreviewModal } from "./FilePreviewModal";
+import { ComposerIntegrationsMenu } from "./ComposerIntegrationsMenu";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -56,7 +61,9 @@ interface AIConversationWorkspaceProps {
     diffContext?: string,
     provider?: string,
     model?: string,
-    attachments?: Attachment[]
+    attachments?: Attachment[],
+    selectedText?: string,
+    selectedMessageId?: string
   ) => Promise<void>;
   onEditMessage?: (
     messageId: string,
@@ -92,6 +99,16 @@ interface AIConversationWorkspaceProps {
   setWaveState: (state: WaveState) => void;
   initialPrompt?: string | null;
   onPromptConsumed?: () => void;
+  greetingSeed?: number;
+  githubMode?: boolean;
+  onToggleGitHubMode?: (next?: boolean) => void;
+  githubStatus?: GitHubStatus | null;
+  isConnectingGitHub?: boolean;
+  activeRepoContext?: ConversationRepoContext | null;
+  liveStatusDetail?: string | null;
+  onConnectGitHub?: () => void;
+  onOpenGitHubSettings?: () => void;
+  onSelectRepoCandidate?: (repo: GitHubRepo) => void;
 }
 
 export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = React.memo(({
@@ -119,10 +136,21 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
   setWaveState,
   initialPrompt,
   onPromptConsumed,
+  greetingSeed = 0,
+  githubMode = false,
+  onToggleGitHubMode,
+  githubStatus = null,
+  isConnectingGitHub = false,
+  activeRepoContext = null,
+  liveStatusDetail = null,
+  onConnectGitHub,
+  onOpenGitHubSettings,
+  onSelectRepoCandidate,
 }) => {
   const [input, setInput] = useState("");
   const [diffContext, setDiffContext] = useState("");
   const [showDiffInput, setShowDiffInput] = useState(false);
+  const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
   const [confirmDeleteActive, setConfirmDeleteActive] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -143,9 +171,6 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
       setEditingMessageId(null);
       setEditingContent("");
       setEditError(null);
-      if (textareaRef.current) {
-        textareaRef.current.style.height = "36px";
-      }
     }
   }, [conversation?.id]);
 
@@ -313,29 +338,35 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
   };
 
   const [greeting, setGreeting] = useState(() => getPersonalizedGreeting(user));
+  const [greetingAnimKey, setGreetingAnimKey] = useState(0);
 
   const prevConvIdRef = useRef(conversation?.id);
   const prevUserIdRef = useRef(user?.id);
   const prevUserNameRef = useRef(user?.name);
+  const prevGreetingSeedRef = useRef(greetingSeed);
 
   useEffect(() => {
     const convChanged = conversation?.id !== prevConvIdRef.current;
     const userChanged =
       user?.id !== prevUserIdRef.current || user?.name !== prevUserNameRef.current;
+    const seedChanged = greetingSeed !== prevGreetingSeedRef.current;
 
-    if (convChanged || userChanged) {
+    if (convChanged || userChanged || seedChanged) {
       prevConvIdRef.current = conversation?.id;
       prevUserIdRef.current = user?.id;
       prevUserNameRef.current = user?.name;
+      prevGreetingSeedRef.current = greetingSeed;
 
       if (!conversation || !conversation.messages || conversation.messages.length === 0) {
         setGreeting(getPersonalizedGreeting(user));
+        setGreetingAnimKey((k) => k + 1);
       }
     }
-  }, [conversation?.id, user?.id, user?.name]);
+  }, [conversation?.id, user?.id, user?.name, greetingSeed]);
 
   const handleNewConversationClick = () => {
     setGreeting(getPersonalizedGreeting(user));
+    setGreetingAnimKey((k) => k + 1);
     onNewConversation();
   };
 
@@ -359,30 +390,38 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
 
   const messages: Message[] = conversation?.messages || [];
 
-  const adjustTextareaHeight = () => {
+  const adjustTextareaHeight = useCallback(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
     textarea.style.height = "auto";
-    const minHeight = 36;
-    const maxHeight =
+    const vh =
       typeof window !== "undefined"
-        ? Math.min(240, Math.floor(window.innerHeight * 0.35))
-        : 240;
+        ? window.visualViewport?.height || window.innerHeight || 768
+        : 768;
+    const isMobile = typeof window !== "undefined" ? window.innerWidth < 640 : false;
+    const minHeight = isMobile ? 36 : 40;
+    const maxHeight = isMobile
+      ? Math.max(96, Math.min(144, Math.floor(vh * 0.25)))
+      : Math.max(120, Math.min(220, Math.floor(vh * 0.34)));
     const scrollHeight = textarea.scrollHeight;
     const targetHeight = Math.min(Math.max(scrollHeight, minHeight), maxHeight);
     textarea.style.height = `${targetHeight}px`;
     textarea.style.overflowY = scrollHeight > maxHeight ? "auto" : "hidden";
-  };
+  }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     adjustTextareaHeight();
-  }, [input]);
+  }, [input, conversation?.id, adjustTextareaHeight]);
 
   useEffect(() => {
     const handleResize = () => adjustTextareaHeight();
     window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
+    window.visualViewport?.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      window.visualViewport?.removeEventListener("resize", handleResize);
+    };
+  }, [adjustTextareaHeight]);
 
   const handleScroll = () => {
     const container = scrollContainerRef.current;
@@ -534,10 +573,6 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
     setDiffContext("");
     setShowDiffInput(false);
     setAttachments([]);
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "36px";
-      textareaRef.current.style.overflowY = "hidden";
-    }
 
     if (setWaveState) {
       setWaveState("receiving");
@@ -683,15 +718,21 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
             </div>
           </div>
         ) : messages.length === 0 && !isSending ? (
-          <div className="flex-1 min-h-0 overflow-hidden flex flex-col items-center justify-center text-center max-w-xl mx-auto py-2 sm:py-6 px-3.5 sm:px-4 animate-fade-in w-full select-none">
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain flex flex-col items-center justify-center text-center max-w-xl mx-auto py-3 sm:py-6 px-3.5 sm:px-4 animate-fade-in w-full select-none">
             <div className="w-11 h-11 sm:w-14 sm:h-14 shrink-0 rounded-2xl bg-white/5 border border-white/15 flex items-center justify-center mb-3 sm:mb-5 shadow-lg shadow-black/40">
               <ChatIcon className="w-5 h-5 sm:w-7 sm:h-7 text-white" />
             </div>
 
-            <h2 className="text-xl sm:text-2xl md:text-3xl font-semibold text-white tracking-tight mb-1.5 sm:mb-2.5 animate-greeting-heading">
+            <h2
+              key={`greeting-h-${greetingAnimKey}`}
+              className="text-xl sm:text-2xl md:text-3xl font-semibold text-white tracking-tight leading-tight sm:leading-snug mb-1.5 sm:mb-2.5 max-w-lg break-words text-balance animate-greeting-heading"
+            >
               {greeting.heading}
             </h2>
-            <p className="text-xs sm:text-sm text-neutral-400 mb-3.5 sm:mb-6 max-w-md leading-relaxed animate-greeting-subtitle">
+            <p
+              key={`greeting-s-${greetingAnimKey}`}
+              className="text-xs sm:text-sm text-neutral-400 mb-3.5 sm:mb-6 max-w-md leading-relaxed break-words animate-greeting-subtitle"
+            >
               {greeting.subtitle}
             </p>
 
@@ -936,7 +977,13 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                           </div>
                         )}
 
-                        <div className="whitespace-pre-wrap font-sans select-text text-sm sm:text-[15px] leading-relaxed">{msg.content}</div>
+                        <div
+                          data-ask-nexarion-selectable="true"
+                          data-message-id={msg.id}
+                          className="whitespace-pre-wrap font-sans select-text text-sm sm:text-[15px] leading-relaxed"
+                        >
+                          {msg.content}
+                        </div>
                         <div className="mt-1.5 flex items-center justify-end gap-2 text-xs text-neutral-400 font-mono select-none">
                           {msg.status === "sending" && (
                             <span className="flex items-center gap-1 text-neutral-400">
@@ -1020,6 +1067,8 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                     isGenerating={isSending}
                     generationState={generationState}
                     generationType={diffContext ? "diff" : generationType}
+                    liveStatusDetail={isStreamingThis ? liveStatusDetail : null}
+                    onSelectRepoCandidate={onSelectRepoCandidate}
                     onRegenerate={() => handleRegenerate(msg.id)}
                     onFeedback={(fb) => handleFeedback(msg.id, fb)}
                     onRetry={() => onRetryMessage && onRetryMessage(msg.id)}
@@ -1036,6 +1085,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                     state={generationState}
                     type={diffContext ? "diff" : generationType}
                     showAvatar={true}
+                    overrideMessage={liveStatusDetail}
                   />
                 </div>
               )}
@@ -1066,10 +1116,10 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
         )}
       </div>
 
-      <div className="flex-shrink-0 shrink-0 p-2.5 sm:p-4 md:px-8 pb-[max(0.625rem,env(safe-area-inset-bottom))] border-t border-white/10 bg-black/85 backdrop-blur-lg z-20">
+      <div className="flex-shrink-0 shrink-0 px-2.5 py-2 sm:px-6 sm:py-3 md:px-8 pb-[max(0.5rem,env(safe-area-inset-bottom))] border-t border-white/10 bg-black/85 backdrop-blur-lg z-20">
 
         {showDiffInput && (
-          <div className="mb-2.5 p-2.5 sm:p-3 rounded-xl bg-neutral-900/80 border border-white/15 animate-fade-in">
+          <div className="mb-2 p-2.5 sm:p-3 rounded-xl bg-neutral-900/80 border border-white/15 animate-fade-in">
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-xs font-mono text-neutral-400">Attached Diff Context (Unified Diff)</span>
               <button
@@ -1090,6 +1140,43 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
           </div>
         )}
 
+        {githubMode && !githubStatus?.connected && (
+          <div className="mb-2 px-3 py-2 rounded-xl bg-white/[0.04] border border-white/15 flex flex-wrap items-center justify-between gap-2 animate-fade-in">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <GithubIcon className="w-4 h-4 text-white flex-shrink-0" />
+              <div className="text-xs text-neutral-300 leading-snug">
+                {githubStatus?.connection_status === "expired" ||
+                githubStatus?.connection_status === "revoked" ? (
+                  <span>GitHub authorization expired or was revoked. Reconnect to inspect private repos.</span>
+                ) : (
+                  <span>Connect GitHub to discover and inspect your private &amp; public repositories.</span>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {onConnectGitHub && (
+                <button
+                  type="button"
+                  disabled={isConnectingGitHub}
+                  onClick={onConnectGitHub}
+                  className="px-3 py-1.5 rounded-lg bg-white text-black hover:bg-neutral-200 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {isConnectingGitHub ? "Connecting..." : "Connect GitHub"}
+                </button>
+              )}
+              {onOpenGitHubSettings && (
+                <button
+                  type="button"
+                  onClick={onOpenGitHubSettings}
+                  className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white text-xs font-mono border border-white/10 transition-colors cursor-pointer"
+                >
+                  Settings
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         <form
           onSubmit={handleSubmit}
           onDragOver={(e) => {
@@ -1104,7 +1191,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
               handleFileSelect(e.dataTransfer.files);
             }
           }}
-          className={`relative flex flex-col bg-neutral-900/90 border rounded-2xl p-2.5 sm:p-3 shadow-2xl transition-all ${
+          className={`relative flex flex-col bg-neutral-900/90 border rounded-2xl px-2 py-1.5 sm:px-3 sm:py-2 shadow-2xl transition-colors ${
             isDraggingOver
               ? "border-white/60 bg-white/[0.08] ring-2 ring-white/20"
               : "border-white/15 focus-within:border-white/35"
@@ -1112,7 +1199,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
         >
 
           {attachments.length > 0 && (
-            <div className="mb-2.5 flex flex-wrap gap-2 animate-fade-in">
+            <div className="mb-2 flex flex-wrap gap-1.5 animate-fade-in">
               {attachments.map((att) => (
                 <div
                   key={att.id}
@@ -1175,52 +1262,100 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
             </div>
           )}
 
-          <div className="w-full relative">
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={(e) => {
-                setInput(e.target.value);
-                adjustTextareaHeight();
-              }}
-              onKeyDown={handleKeyDown}
-              onCompositionStart={() => {
-                isComposingRef.current = true;
-              }}
-              onCompositionEnd={() => {
-                isComposingRef.current = false;
-              }}
-              placeholder={
-                attachments.length > 0
-                  ? `Ask NEXARION about ${attachments.map((a) => a.filename).join(", ")}...`
-                  : "Ask NEXARION about your code..."
-              }
-              rows={1}
-              disabled={isSending}
-              className="w-full bg-transparent text-white placeholder-neutral-500 text-sm sm:text-[15px] px-1.5 py-1.5 resize-none focus:outline-none transition-[height] duration-75 overflow-x-hidden leading-relaxed block"
-              style={{ minHeight: "40px", maxHeight: "200px", overflowY: "hidden" }}
-            />
-          </div>
+          {(githubMode || showDiffInput || diffContext) && (
+            <div className="mb-1.5 flex flex-wrap items-center gap-1.5 px-0.5">
+              {githubMode && (
+                <div
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/12 border border-white/25 text-white text-xs font-medium shadow-sm animate-fade-in"
+                  role="status"
+                  aria-label="GitHub integration enabled"
+                >
+                  <GithubIcon className="w-3.5 h-3.5 text-white flex-shrink-0" />
+                  <span>GitHub</span>
+                  {activeRepoContext && (
+                    <span className="hidden sm:inline text-[11px] text-neutral-300 font-mono truncate max-w-[140px]">
+                      • {activeRepoContext.repository_full_name.split("/").pop()}
+                    </span>
+                  )}
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                      githubStatus?.connected
+                        ? "bg-emerald-400"
+                        : githubStatus?.connection_status === "expired" ||
+                          githubStatus?.connection_status === "revoked"
+                        ? "bg-amber-400"
+                        : "bg-neutral-400"
+                    }`}
+                    title={
+                      githubStatus?.connected
+                        ? `Connected as ${githubStatus.username || "GitHub user"}`
+                        : "Not connected"
+                    }
+                  />
+                  {onToggleGitHubMode && (
+                    <button
+                      type="button"
+                      onClick={() => onToggleGitHubMode(false)}
+                      className="p-0.5 rounded-full text-neutral-300 hover:text-white hover:bg-white/15 focus:outline-none focus:ring-1 focus:ring-white/40 transition-colors cursor-pointer"
+                      aria-label="Remove GitHub integration"
+                      title="Remove GitHub mode"
+                    >
+                      <CloseIcon className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              )}
 
-          <div className="flex items-center justify-between pt-2 mt-1 border-t border-white/5 gap-2">
-            <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-wrap sm:flex-nowrap">
+              {(showDiffInput || diffContext) && (
+                <button
+                  type="button"
+                  onClick={() => setShowDiffInput(!showDiffInput)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/10 text-white border border-white/20 text-xs font-mono transition-colors cursor-pointer"
+                  title="Toggle code diff panel"
+                >
+                  <CodeIcon className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span>{diffContext ? "Diff Attached" : "Diff"}</span>
+                </button>
+              )}
+            </div>
+          )}
+
+          <div className="flex items-end gap-1.5 sm:gap-2.5 w-full min-w-0">
+            <div className="relative flex items-center flex-shrink-0 pb-0.5">
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
+                data-plus-menu-trigger="true"
+                onClick={() => setIsPlusMenuOpen((prev) => !prev)}
                 disabled={isSending}
-                className={`min-w-[38px] min-h-[38px] p-2 sm:px-2.5 sm:py-1.5 rounded-xl text-xs font-mono transition-colors flex items-center justify-center gap-1.5 cursor-pointer ${
-                  attachments.length > 0
-                    ? "bg-white/15 text-white border border-white/20"
-                    : "text-neutral-400 hover:text-white hover:bg-white/5 border border-transparent"
+                className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors cursor-pointer flex-shrink-0 border ${
+                  isPlusMenuOpen
+                    ? "bg-white/20 text-white border-white/30"
+                    : "bg-white/[0.06] hover:bg-white/15 text-neutral-300 hover:text-white border-white/10"
                 }`}
-                title="Attach file (.pdf, .txt, .diff, .patch, code files)"
-                aria-label="Attach file"
+                title="Add tools & integrations"
+                aria-label="Open integrations menu"
+                aria-expanded={isPlusMenuOpen}
+                aria-haspopup="menu"
               >
-                <PaperclipIcon className="w-[18px] h-[18px] flex-shrink-0" />
-                <span className="hidden sm:inline text-xs sm:text-[13px] font-mono">
-                  {attachments.length > 0 ? `${attachments.length} Attached` : "Attach File"}
-                </span>
+                <PlusIcon className={`w-[18px] h-[18px] transition-transform duration-150 ${isPlusMenuOpen ? "rotate-45" : ""}`} />
               </button>
+
+              <ComposerIntegrationsMenu
+                isOpen={isPlusMenuOpen}
+                onClose={() => setIsPlusMenuOpen(false)}
+                githubEnabled={githubMode}
+                githubConnected={Boolean(githubStatus?.connected)}
+                hasDiffAttached={Boolean(showDiffInput || diffContext)}
+                attachmentsCount={attachments.length}
+                onToggleGitHub={() => {
+                  if (onToggleGitHubMode) {
+                    onToggleGitHubMode(!githubMode);
+                  }
+                }}
+                onTriggerAttachFile={() => fileInputRef.current?.click()}
+                onToggleAttachDiff={() => setShowDiffInput((prev) => !prev)}
+              />
+
               <input
                 ref={fileInputRef}
                 type="file"
@@ -1234,26 +1369,39 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                   }
                 }}
               />
-
-              <button
-                type="button"
-                onClick={() => setShowDiffInput(!showDiffInput)}
-                className={`min-w-[38px] min-h-[38px] p-2 sm:px-2.5 sm:py-1.5 rounded-xl text-xs font-mono transition-colors flex items-center justify-center gap-1.5 cursor-pointer ${
-                  showDiffInput || diffContext
-                    ? "bg-white/15 text-white border border-white/20"
-                    : "text-neutral-400 hover:text-white hover:bg-white/5 border border-transparent"
-                }`}
-                title="Attach code diff to this query"
-                aria-label="Attach code diff"
-              >
-                <CodeIcon className="w-[18px] h-[18px] flex-shrink-0" />
-                <span className="hidden sm:inline text-xs sm:text-[13px] font-mono">
-                  {diffContext ? "Diff Attached" : "Attach Diff"}
-                </span>
-              </button>
             </div>
 
-            <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="flex-1 min-w-0 flex items-center py-0.5">
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(e) => {
+                  setInput(e.target.value);
+                  adjustTextareaHeight();
+                }}
+                onKeyDown={handleKeyDown}
+                onCompositionStart={() => {
+                  isComposingRef.current = true;
+                }}
+                onCompositionEnd={() => {
+                  isComposingRef.current = false;
+                }}
+                placeholder={
+                  githubMode
+                    ? activeRepoContext
+                      ? `Ask NEXARION about ${activeRepoContext.repository_full_name}...`
+                      : "Ask NEXARION about your GitHub repositories..."
+                    : attachments.length > 0
+                    ? `Ask NEXARION about ${attachments.map((a) => a.filename).join(", ")}...`
+                    : "Ask NEXARION about your code..."
+                }
+                rows={1}
+                disabled={isSending}
+                className="w-full min-w-0 bg-transparent text-white placeholder-neutral-500 text-sm sm:text-[15px] leading-5 sm:leading-6 px-1 py-1.5 sm:py-2 resize-none focus:outline-none overflow-x-hidden block"
+              />
+            </div>
+
+            <div className="flex items-center flex-shrink-0">
               {isSending ? (
                 <button
                   type="button"
@@ -1279,11 +1427,28 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
           </div>
         </form>
 
-        <div className="hidden sm:flex items-center justify-between mt-2 px-2 text-[10px] text-neutral-500 font-mono">
+        <div className="hidden sm:flex items-center justify-between mt-1.5 px-2 text-[10px] text-neutral-500 font-mono">
           <span>Press Enter to send, Shift + Enter for newline</span>
           <span>NEXARION Multi-Agent Intelligence</span>
         </div>
       </div>
+
+      <AskNexarionSelectionHandler
+        containerRef={scrollContainerRef}
+        conversationId={conversation?.id}
+        disabled={isSending || !conversation}
+        onSubmitQuestion={({ question, selectedText, messageId }) => {
+          void onSendMessage(
+            question,
+            undefined,
+            selectedModel.provider,
+            selectedModel.model,
+            undefined,
+            selectedText,
+            messageId
+          );
+        }}
+      />
 
       <FilePreviewModal
         attachment={previewAttachment}
@@ -1303,6 +1468,8 @@ const AssistantMessageItem = React.forwardRef<
     isGenerating?: boolean;
     generationState?: GenerationState;
     generationType?: GenerationType;
+    liveStatusDetail?: string | null;
+    onSelectRepoCandidate?: (repo: GitHubRepo) => void;
     onRegenerate: () => void;
     onFeedback: (feedback: "helpful" | "unhelpful" | null) => void;
     onRetry?: () => void;
@@ -1314,6 +1481,8 @@ const AssistantMessageItem = React.forwardRef<
       isGenerating,
       generationState = "thinking",
       generationType = "chat",
+      liveStatusDetail = null,
+      onSelectRepoCandidate,
       onRegenerate,
       onFeedback,
       onRetry,
@@ -1325,10 +1494,14 @@ const AssistantMessageItem = React.forwardRef<
     const isStreaming = message.status === "streaming";
     const isError = message.status === "error";
     const hasContent = Boolean(message.content && message.content.trim().length > 0);
+    const hasCandidates = Boolean(message.repoCandidates && message.repoCandidates.length > 0);
 
     return (
       <div ref={ref} className="group flex gap-3.5 justify-start animate-fade-in w-full scroll-mt-6">
-        <div className="w-8 h-8 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center flex-shrink-0 mt-0.5 select-none">
+        <div
+          data-ask-nexarion-ignore="true"
+          className="w-8 h-8 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center flex-shrink-0 mt-0.5 select-none"
+        >
           <span className="text-xs font-bold text-white font-mono">NX</span>
         </div>
 
@@ -1339,6 +1512,7 @@ const AssistantMessageItem = React.forwardRef<
               state={generationState}
               type={generationType}
               showAvatar={false}
+              overrideMessage={liveStatusDetail}
             />
           ) : (
             <div
@@ -1349,8 +1523,29 @@ const AssistantMessageItem = React.forwardRef<
                   : "bg-black/60 text-neutral-200 border border-white/10"
               }`}
             >
+              {message.repoMeta && (
+                <div
+                  data-ask-nexarion-ignore="true"
+                  className="mb-2.5 pb-2 border-b border-white/10 flex flex-wrap items-center gap-2 text-[11px] font-mono text-neutral-400"
+                >
+                  <GithubIcon className="w-3.5 h-3.5 text-white flex-shrink-0" />
+                  <span className="text-white font-medium">{message.repoMeta.repository}</span>
+                  <span className="px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-neutral-300">
+                    {message.repoMeta.branch}
+                  </span>
+                  {message.repoMeta.commit_sha && (
+                    <span className="text-neutral-500">
+                      @{message.repoMeta.commit_sha.slice(0, 7)}
+                    </span>
+                  )}
+                </div>
+              )}
+
               {hasContent && (
-                <div>
+                <div
+                  data-ask-nexarion-selectable={!isStreaming ? "true" : undefined}
+                  data-message-id={message.id}
+                >
                   <MarkdownContent content={message.content} />
                   {isStreaming && (
                     <span className="inline-block w-1.5 h-3.5 bg-white/80 ml-0.5 align-middle animate-pulse" />
@@ -1358,8 +1553,44 @@ const AssistantMessageItem = React.forwardRef<
                 </div>
               )}
 
+              {hasCandidates && onSelectRepoCandidate && (
+                <div
+                  data-ask-nexarion-ignore="true"
+                  className="mt-3 pt-3 border-t border-white/10 grid grid-cols-1 sm:grid-cols-2 gap-2"
+                >
+                  {message.repoCandidates!.map((repo) => (
+                    <button
+                      key={repo.full_name}
+                      type="button"
+                      disabled={isGenerating}
+                      onClick={() => onSelectRepoCandidate(repo)}
+                      className="flex flex-col items-start p-2.5 rounded-xl bg-white/[0.04] hover:bg-white/10 border border-white/15 hover:border-white/30 text-left transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      <div className="w-full flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold text-white truncate">
+                          {repo.full_name}
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-white/10 text-neutral-300 flex-shrink-0">
+                          {repo.private ? "Private" : "Public"}
+                        </span>
+                      </div>
+                      {repo.description && (
+                        <span className="text-[11px] text-neutral-400 line-clamp-1 mt-1">
+                          {repo.description}
+                        </span>
+                      )}
+                      <div className="flex items-center gap-2 mt-1.5 text-[10px] font-mono text-neutral-500">
+                        <span>{repo.default_branch}</span>
+                        {repo.language && <span>• {repo.language}</span>}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+
               {isError && (
                 <div
+                  data-ask-nexarion-ignore="true"
                   className={`${
                     hasContent ? "mt-3 pt-3 border-t border-white/10" : ""
                   } flex items-center justify-between gap-3 text-xs`}
@@ -1384,7 +1615,10 @@ const AssistantMessageItem = React.forwardRef<
                 </div>
               )}
 
-              <div className="mt-2 flex items-center justify-between text-xs text-neutral-400 font-mono select-none">
+              <div
+                data-ask-nexarion-ignore="true"
+                className="mt-2 flex items-center justify-between text-xs text-neutral-400 font-mono select-none"
+              >
                 {isStreaming ? (
                   <span className="flex items-center gap-1.5 text-neutral-400">
                     <span className="w-1.5 h-1.5 rounded-full bg-white/70 animate-pulse" />
