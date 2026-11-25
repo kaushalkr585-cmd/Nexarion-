@@ -129,17 +129,17 @@ class TestBanditReview:
                         DiffLine(
                             line_type=LineType.ADDED,
                             content="os.system(...)",
-                            target_line=19,
+                            target_line=12,
                         ),
                         DiffLine(
                             line_type=LineType.ADDED,
                             content="subprocess.run(..., shell=True)",
-                            target_line=20,
+                            target_line=13,
                         ),
                         DiffLine(
                             line_type=LineType.ADDED,
                             content="query = ...",
-                            target_line=30,
+                            target_line=21,
                         ),
                     ),
                 ),
