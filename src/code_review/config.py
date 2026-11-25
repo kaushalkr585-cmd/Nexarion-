@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     debug: bool = False
     """Enables extra validation and verbose error messages in non-production environments."""
 
-    llm_provider: str = "llm"
+    llm_provider: str = "ollama"
     """Active LLM provider ('ollama', 'llm', or 'nvidia')."""
 
     llm_model: str = "qwen2.5-coder:7b"
