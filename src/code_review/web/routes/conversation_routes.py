@@ -122,9 +122,12 @@ def _build_system_prompt(
     else:
         active_model = settings.ollama_model or settings.llm_model
 
-    if active_provider in ("nvidia", "llm") or "nemotron" in str(active_model).lower():
+    if active_provider == "nvidia" or "nemotron" in str(active_model).lower():
+        provider_name = "NVIDIA NIM"
+        model_display_name = "NVIDIA Nemotron Ultra"
+    elif active_provider == "llm":
         provider_name = "LLM"
-        model_display_name = "LLM"
+        model_display_name = str(active_model)
     elif active_provider == "ollama":
         provider_name = "Ollama"
         model_display_name = f"local {active_model} via Ollama"
