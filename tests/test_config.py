@@ -73,3 +73,23 @@ class TestGetSettings:
         first = get_settings()
         second = get_settings()
         assert first is second
+
+
+class TestProductionSecretValidation:
+    def test_rejects_default_development_secret_in_production(self) -> None:
+        with pytest.raises(ValidationError, match="SESSION_SECRET"):
+            Settings(
+                app_env="production",
+                session_secret="nexarion_session_secret_dev_key",
+            )
+
+    def test_rejects_short_secret_in_production(self) -> None:
+        with pytest.raises(ValidationError, match="SESSION_SECRET"):
+            Settings(app_env="production", session_secret="too-short")
+
+    def test_accepts_unique_secret_in_production(self) -> None:
+        settings = Settings(
+            app_env="production",
+            session_secret="a-unique-production-secret-with-more-than-32-characters",
+        )
+        assert settings.app_env == "production"
