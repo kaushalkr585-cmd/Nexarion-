@@ -4,6 +4,7 @@ TestClient instances are often created without a context manager, so the app
 lifespan is not guaranteed to run. Build the schema and seed agent defaults
 before any test fixtures access PostgreSQL.
 """
+
 import pytest
 from sqlalchemy.orm import Session
 
