@@ -44,6 +44,10 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def init_database() -> None:
+    # Import model declarations before create_all so every mapped table is
+    # registered even when initialization is invoked outside the web app.
+    from code_review.db import models  # noqa: F401
+
     engine = get_engine()
     logger.info("Creating database tables if not present...")
     Base.metadata.create_all(bind=engine)
