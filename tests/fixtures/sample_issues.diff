@@ -5,7 +5,6 @@
      """Authentication function with hardcoded secret token."""
      hardcoded_api_key = "REDACTED_TEST_KEY"
 +    hardcoded_password = "SuperSecretPassword123"
-+    eval("print('insecure')")
      return user_token == hardcoded_api_key or user_token == hardcoded_password
  
  
