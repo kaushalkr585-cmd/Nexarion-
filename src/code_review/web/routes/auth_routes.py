@@ -36,7 +36,7 @@ def _set_session_cookie(response: Response, token: str) -> None:
         max_age=SESSION_COOKIE_MAX_AGE,
         httponly=True,
         samesite="lax",
-        secure=False,
+        secure=get_settings().app_env == "production",
         path="/",
     )
 
@@ -53,7 +53,9 @@ def _generate_oauth_state(origin: str | None = None) -> str:
     fallback_origin = (
         settings.frontend_url.rstrip("/") if settings.frontend_url else "http://localhost:8000"
     )
-    target_origin = (origin or fallback_origin).rstrip("/")
+    requested_origin = (origin or fallback_origin).rstrip("/")
+    # Never sign an arbitrary caller-supplied redirect origin into OAuth state.
+    target_origin = requested_origin if requested_origin == fallback_origin else fallback_origin
     state_payload = {
         "nonce": secrets.token_hex(16),
         "origin": target_origin,
@@ -171,6 +173,9 @@ def google_callback(
     settings = get_settings()
 
     state_data = _decode_oauth_state(state)
+    if settings.app_env == "production" and not state_data:
+        fallback = settings.frontend_url.rstrip("/")
+        return RedirectResponse(url=f"{fallback}/?auth_error=invalid_oauth_state")
     target_origin = (
         state_data.get("origin")
         if state_data and "origin" in state_data
