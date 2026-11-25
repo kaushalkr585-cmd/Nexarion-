@@ -190,22 +190,22 @@ class TestASTAgentReview:
                         DiffLine(
                             line_type=LineType.ADDED,
                             content="from math import *",
-                            target_line=6,
+                            target_line=1,
                         ),
                         DiffLine(
                             line_type=LineType.ADDED,
                             content="def calculate_discount",
-                            target_line=9,
+                            target_line=4,
                         ),
                         DiffLine(
                             line_type=LineType.ADDED,
                             content="if val % 2 == 0:",
-                            target_line=49,
+                            target_line=42,
                         ),
                         DiffLine(
                             line_type=LineType.ADDED,
                             content="def overly_long_function",
-                            target_line=54,
+                            target_line=47,
                         ),
                     ),
                 ),
