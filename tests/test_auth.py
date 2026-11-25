@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from code_review.config import Settings
 from code_review.db.database import get_db
 from code_review.db.models import UserRecord
 from code_review.web.app import app
@@ -14,7 +15,11 @@ def client() -> TestClient:
     return TestClient(app, follow_redirects=False)
 
 
-def test_get_google_auth_url(client: TestClient) -> None:
+def test_get_google_auth_url(client: TestClient, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "code_review.web.routes.auth_routes.get_settings",
+        lambda: Settings(google_client_id="test-google-client-id"),
+    )
     resp = client.get("/api/auth/google/url?origin=http://localhost:5173")
     assert resp.status_code == 200
     data = resp.json()
@@ -88,7 +93,18 @@ def test_google_callback_success_creates_user_and_session(client: TestClient) ->
 def test_google_callback_links_existing_verified_user(client: TestClient) -> None:
     db = next(get_db())
     existing = db.query(UserRecord).filter_by(email="kushal@example.com").first()
-    assert existing is not None
+    if existing is None:
+        existing = UserRecord(
+            email="kushal@example.com",
+            name="Kushal Kumar",
+            email_verified=True,
+            auth_provider="local",
+        )
+        db.add(existing)
+    else:
+        existing.email_verified = True
+    db.commit()
+    db.refresh(existing)
 
     mock_token_resp = MagicMock()
     mock_token_resp.status_code = 200
