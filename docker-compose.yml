@@ -21,6 +21,18 @@ services:
     networks:
       - nexarion-network
 
+  ollama:
+    image: ollama/ollama:latest
+    container_name: nexarion-ollama
+    profiles: ["local-llm"]
+    restart: unless-stopped
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - nexarion-network
+
   backend:
     build:
       context: .
@@ -34,12 +46,13 @@ services:
       - "${PORT:-8000}:${PORT:-8000}"
     environment:
       APP_NAME: nexarion
+      APP_ENV: ${APP_ENV:-production}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       DEBUG: ${DEBUG:-false}
       PORT: ${PORT:-8000}
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-nexarion_secure_password}@postgres:5432/${POSTGRES_DB:-nexarion_db}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8000}
-      SESSION_SECRET: ${SESSION_SECRET:-nexarion_production_jwt_secret_key_change_me}
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET to a unique value of at least 32 characters}
       LLM_PROVIDER: nvidia
       NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
       NVIDIA_MODEL: ${NVIDIA_MODEL:-nvidia/nemotron-3-ultra-550b-a55b}
@@ -64,6 +77,8 @@ services:
 volumes:
   postgres_data:
     name: nexarion_postgres_data
+  ollama_data:
+    name: nexarion_ollama_data
 
 networks:
   nexarion-network:

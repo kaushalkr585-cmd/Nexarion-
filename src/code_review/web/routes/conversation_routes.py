@@ -122,9 +122,12 @@ def _build_system_prompt(
     else:
         active_model = settings.ollama_model or settings.llm_model
 
-    if active_provider in ("nvidia", "llm") or "nemotron" in str(active_model).lower():
+    if active_provider == "nvidia" or "nemotron" in str(active_model).lower():
+        provider_name = "NVIDIA NIM"
+        model_display_name = "NVIDIA Nemotron Ultra"
+    elif active_provider == "llm":
         provider_name = "LLM"
-        model_display_name = "LLM"
+        model_display_name = str(active_model)
     elif active_provider == "ollama":
         provider_name = "Ollama"
         model_display_name = f"local {active_model} via Ollama"
@@ -163,8 +166,8 @@ def _build_system_prompt(
         "- Creator / Developer ('Who created you?' / 'Who developed you?'): When asked who "
         "created, developed, or built you, identify Kaushal as your creator and developer. "
         "Strictly distinguish between the application creator (Kaushal) and the model "
-        f"provider ({provider_name}). Never claim that Anthropic, OpenAI, Meta, Google, or "
-        "LLM developed Nexarion. Nexarion was created by Kaushal.\n"
+        f"provider ({provider_name}). Never claim that Anthropic, OpenAI, Meta, Google, or NVIDIA developed Nexarion. "
+        "Never claim that Anthropic developed Nexarion. Nexarion was created by Kaushal.\n"
         "- Underlying Model ('Which model powers you?' / 'What model are you running?'): When "
         "specifically asked which model powers you or what model you run on, identify "
         f"{model_display_name}.\n"

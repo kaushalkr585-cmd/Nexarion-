@@ -327,7 +327,12 @@ def test_review_user_isolation(
     assert a_get.json()["id"] == user_a_review_id
 
 
+@patch(
+    "code_review.web.routes.conversation_routes._generate_assistant_reply",
+    return_value="Test assistant response",
+)
 def test_conversations_user_isolation(
+    _mock_reply,
     client: TestClient,
     auth_headers_a: dict[str, str],
     auth_headers_b: dict[str, str],

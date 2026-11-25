@@ -129,17 +129,17 @@ class TestBanditReview:
                         DiffLine(
                             line_type=LineType.ADDED,
                             content="os.system(...)",
-                            target_line=19,
+                            target_line=12,
                         ),
                         DiffLine(
                             line_type=LineType.ADDED,
                             content="subprocess.run(..., shell=True)",
-                            target_line=20,
+                            target_line=13,
                         ),
                         DiffLine(
                             line_type=LineType.ADDED,
                             content="query = ...",
-                            target_line=30,
+                            target_line=21,
                         ),
                     ),
                 ),
@@ -152,7 +152,7 @@ class TestBanditReview:
         assert "B605" in rule_ids or "B602" in rule_ids or "B608" in rule_ids
         for f in findings:
             assert f.file == fixture_path
-            assert f.line in {19, 20, 30}
+            assert f.line in {12, 13, 21}
             assert f.category == Category.SECURITY
             assert f.agent == AgentType.BANDIT
 

@@ -9,7 +9,7 @@ def test_send_message_stream_endpoint():
     client = TestClient(app)
 
     c_resp = client.post(
-        "/api/conversations", json={"title": "Stream Test", "initial_message": "Hello"}
+        "/api/conversations", json={"title": "Stream Test"}
     )
     assert c_resp.status_code == 201
     conv_id = c_resp.json()["id"]
@@ -37,7 +37,7 @@ def test_send_message_stream_endpoint():
 def test_stream_error_normalization():
     client = TestClient(app)
     c_resp = client.post(
-        "/api/conversations", json={"title": "Error Test", "initial_message": "Init"}
+        "/api/conversations", json={"title": "Error Test"}
     )
     conv_id = c_resp.json()["id"]
 

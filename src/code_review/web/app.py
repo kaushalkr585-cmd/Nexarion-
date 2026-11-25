@@ -4,8 +4,10 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from code_review.config import get_settings
@@ -29,14 +31,13 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Initializing NEXARION application and database...")
-    try:
-        init_database()
-        engine = get_engine()
-        with Session(engine) as session:
-            seed_database(session)
-        logger.info("NEXARION startup completed.")
-    except Exception as exc:
-        logger.error("Startup database initialization error: %s", exc)
+    # Fail startup when the database is unavailable. A live process with no
+    # usable database is not ready to serve authenticated application traffic.
+    init_database()
+    engine = get_engine()
+    with Session(engine) as session:
+        seed_database(session)
+    logger.info("NEXARION startup completed.")
     yield
     logger.info("NEXARION application shutting down.")
 
@@ -71,8 +72,8 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Keep both prefixes for compatibility with existing OAuth callback URLs.
     app.include_router(auth_routes.router, prefix="/api")
-
     app.include_router(auth_routes.router)
     app.include_router(review_routes.router, prefix="/api")
     app.include_router(overview_routes.router, prefix="/api")
@@ -90,7 +91,22 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     @app.get("/api/health")
-    def health_check() -> dict[str, str]:
+    def health_check():
+        try:
+            with get_engine().connect() as connection:
+                connection.execute(text("SELECT 1"))
+        except SQLAlchemyError:
+            logger.exception("Database readiness check failed.")
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "unavailable",
+                    "app": "NEXARION",
+                    "version": "1.0.0",
+                    "dependency": "database",
+                },
+            )
+
         return {
             "status": "ok",
             "app": "NEXARION",

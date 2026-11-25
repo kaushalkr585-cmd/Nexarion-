@@ -1,6 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,6 +12,9 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
+    app_env: Literal["development", "test", "production"] = "development"
+    """Runtime environment. Production enables strict secret validation."""
+
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     """Controls logging verbosity."""
 
@@ -20,7 +24,7 @@ class Settings(BaseSettings):
     debug: bool = False
     """Enables extra validation and verbose error messages in non-production environments."""
 
-    llm_provider: str = "llm"
+    llm_provider: str = "ollama"
     """Active LLM provider ('ollama', 'llm', or 'nvidia')."""
 
     llm_model: str = "qwen2.5-coder:7b"
@@ -166,6 +170,19 @@ class Settings(BaseSettings):
 
     attachment_retention_days: int = 30
     """Retention duration in days for uploaded document attachments."""
+
+    @model_validator(mode="after")
+    def validate_production_secrets(self):
+        if self.app_env == "production":
+            if (
+                self.session_secret == "nexarion_session_secret_dev_key"
+                or len(self.session_secret) < 32
+            ):
+                raise ValueError(
+                    "SESSION_SECRET must be explicitly configured with at least "
+                    "32 characters when APP_ENV=production."
+                )
+        return self
 
 
 @lru_cache(maxsize=1)
