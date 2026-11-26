@@ -1,6 +1,6 @@
 import React from "react";
 import type { AgentConfig } from "../types";
-import { AgentIcon } from "../components/icons/Icons";
+import { getAgentIcon } from "../components/icons/Icons";
 
 interface AgentCardProps {
   agent: AgentConfig;
@@ -10,6 +10,7 @@ interface AgentCardProps {
 const AgentCard: React.FC<AgentCardProps> = React.memo(
   ({ agent, onToggle }) => {
     const isEnabled = Boolean(agent.is_enabled);
+    const AgentIconComponent = getAgentIcon(agent.agent_id, agent.name);
 
     return (
       <div
@@ -25,7 +26,7 @@ const AgentCard: React.FC<AgentCardProps> = React.memo(
                   isEnabled ? "bg-emerald-500/10 text-emerald-400" : "bg-white/5 text-neutral-400"
                 }`}
               >
-                <AgentIcon className="w-5 h-5" />
+                <AgentIconComponent className="w-5 h-5" />
               </div>
               <div className="min-w-0 flex-1">
                 <h3 className="text-sm sm:text-base font-semibold text-white break-words leading-snug">

@@ -829,6 +829,7 @@ export const App: React.FC = () => {
             }
             if (!targetConvId) {
               if (shouldFocus) {
+                const effectiveUserMsgId = metadata.user_message_id || userTempId;
                 setActiveConversation((prev) => {
                   if (!prev) {
                     return {
@@ -837,7 +838,7 @@ export const App: React.FC = () => {
                       created_at: new Date().toISOString(),
                       updated_at: new Date().toISOString(),
                       messages: [
-                        { ...optimisticUserMsg, conversation_id: metadata.id },
+                        { ...optimisticUserMsg, id: effectiveUserMsgId, conversation_id: metadata.id },
                         { ...optimisticAsstMsg, conversation_id: metadata.id },
                       ],
                     };
@@ -848,6 +849,7 @@ export const App: React.FC = () => {
                     title: metadata.title,
                     messages: (prev.messages || []).map((m) => ({
                       ...m,
+                      id: m.id === userTempId && metadata.user_message_id ? metadata.user_message_id : m.id,
                       conversation_id: metadata.id,
                     })),
                   };
@@ -869,6 +871,29 @@ export const App: React.FC = () => {
                       conversation.id !== metadata.id && conversation.id !== streamKey
                   ),
                 ];
+              });
+            } else if (metadata.user_message_id) {
+              setActiveConversation((prev) => {
+                if (!prev) return prev;
+                return {
+                  ...prev,
+                  messages: (prev.messages || []).map((m) =>
+                    m.id === userTempId ? { ...m, id: metadata.user_message_id! } : m
+                  ),
+                };
+              });
+            }
+          },
+          onAck: (ackData) => {
+            if (ackData.user_message_id) {
+              setActiveConversation((prev) => {
+                if (!prev) return prev;
+                return {
+                  ...prev,
+                  messages: (prev.messages || []).map((m) =>
+                    m.id === userTempId ? { ...m, id: ackData.user_message_id! } : m
+                  ),
+                };
               });
             }
           },
@@ -934,18 +959,26 @@ export const App: React.FC = () => {
               if (hasAsst) {
                 return {
                   ...prev,
-                  messages: (prev.messages || []).map((m) =>
-                    m.id === asstTempId
-                      ? {
-                          ...m,
-                          id: data.message_id || m.id,
-                          conversation_id: data.conversation_id || m.conversation_id,
-                          content: data.content || m.content,
-                          status: "sent",
-                          created_at: data.created_at || m.created_at,
-                        }
-                      : m
-                  ),
+                  messages: (prev.messages || []).map((m) => {
+                    if (m.id === asstTempId) {
+                      return {
+                        ...m,
+                        id: data.message_id || m.id,
+                        conversation_id: data.conversation_id || m.conversation_id,
+                        content: data.content || m.content,
+                        status: "sent",
+                        created_at: data.created_at || m.created_at,
+                      };
+                    }
+                    if (data.user_message_id && m.id === userTempId) {
+                      return {
+                        ...m,
+                        id: data.user_message_id,
+                        conversation_id: data.conversation_id || m.conversation_id,
+                      };
+                    }
+                    return m;
+                  }),
                 };
               }
               return {
@@ -1426,6 +1459,21 @@ export const App: React.FC = () => {
               };
             });
           },
+          onAck: (ackData) => {
+            if (ackData.user_message_id) {
+              setActiveConversation((prev) => {
+                if (!prev || prev.id !== targetConvId) return prev;
+                return {
+                  ...prev,
+                  messages: (prev.messages || []).map((m) =>
+                    m.id === messageId || (m.role === "user" && m.id.startsWith("temp-user-"))
+                      ? { ...m, id: ackData.user_message_id! }
+                      : m
+                  ),
+                };
+              });
+            }
+          },
           onSaved: () => {
             if (onSaved) onSaved();
           },
@@ -1452,17 +1500,24 @@ export const App: React.FC = () => {
               if (!prev || prev.id !== targetConvId) return prev;
               return {
                 ...prev,
-                messages: (prev.messages || []).map((m) =>
-                  m.id === asstTempId
-                    ? {
-                        ...m,
-                        id: data.message_id || m.id,
-                        content: data.content || m.content,
-                        status: "sent",
-                        created_at: data.created_at || m.created_at,
-                      }
-                    : m
-                ),
+                messages: (prev.messages || []).map((m) => {
+                  if (m.id === asstTempId) {
+                    return {
+                      ...m,
+                      id: data.message_id || m.id,
+                      content: data.content || m.content,
+                      status: "sent",
+                      created_at: data.created_at || m.created_at,
+                    };
+                  }
+                  if (data.user_message_id && (m.id === messageId || m.id.startsWith("temp-user-"))) {
+                    return {
+                      ...m,
+                      id: data.user_message_id,
+                    };
+                  }
+                  return m;
+                }),
               };
             });
           },

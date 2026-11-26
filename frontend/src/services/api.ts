@@ -161,7 +161,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   });
 
   if (!response.ok) {
-    let errorDetail = `Request failed: ${response.status} ${response.statusText}`;
+    let errorDetail = `Request failed: ${response.status} ${response.statusText}`.trim();
     try {
       const errJson = await response.json();
       if (errJson) {
@@ -170,10 +170,15 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
         } else if (errJson.detail) {
           errorDetail =
             typeof errJson.detail === "string" ? errJson.detail : JSON.stringify(errJson.detail);
+        } else if (errJson.message) {
+          errorDetail =
+            typeof errJson.message === "string" ? errJson.message : JSON.stringify(errJson.message);
         }
       }
     } catch {
-
+      if (response.status >= 500) {
+        errorDetail = "The server is temporarily unavailable or restarting. Please try again in a moment.";
+      }
     }
     throw new Error(sanitizeErrorMessage(errorDetail));
   }
@@ -188,7 +193,8 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 async function readSSEStream(
   response: Response,
   callbacks: {
-    onInit?: (metadata: { id: string; title: string }) => void;
+    onInit?: (metadata: { id: string; title: string; user_message_id?: string }) => void;
+    onAck?: (data: { conversation_id: string; user_message_id?: string }) => void;
     onStatus?: (evt: { stage: string; detail: string }) => void;
     onRepoSelect?: (evt: { candidates: GitHubRepo[]; message: string }) => void;
     onRepoMeta?: (evt: { repository: string; branch: string; commit_sha?: string | null }) => void;
@@ -196,6 +202,7 @@ async function readSSEStream(
     onDone?: (data: {
       conversation_id: string;
       message_id: string;
+      user_message_id?: string;
       content: string;
       created_at: string;
       metrics?: { ttft_ms?: number; total_ms?: number; chunks?: number };
@@ -239,6 +246,8 @@ async function readSSEStream(
           const parsed = JSON.parse(dataStr);
           if (eventType === "init" && callbacks.onInit) {
             callbacks.onInit(parsed);
+          } else if (eventType === "ack" && callbacks.onAck) {
+            callbacks.onAck(parsed);
           } else if (eventType === "status" && callbacks.onStatus) {
             callbacks.onStatus(parsed);
           } else if (eventType === "repo_select" && callbacks.onRepoSelect) {
@@ -458,7 +467,8 @@ export const conversationApi = {
       selectedMessageId?: string;
     },
     callbacks: {
-      onInit?: (metadata: { id: string; title: string }) => void;
+      onInit?: (metadata: { id: string; title: string; user_message_id?: string }) => void;
+      onAck?: (data: { conversation_id: string; user_message_id?: string }) => void;
       onStatus?: (evt: { stage: string; detail: string }) => void;
       onRepoSelect?: (evt: { candidates: GitHubRepo[]; message: string }) => void;
       onRepoMeta?: (evt: { repository: string; branch: string; commit_sha?: string | null }) => void;
@@ -466,6 +476,7 @@ export const conversationApi = {
       onDone?: (data: {
         conversation_id: string;
         message_id: string;
+        user_message_id?: string;
         content: string;
         created_at: string;
         metrics?: { ttft_ms?: number; total_ms?: number; chunks?: number };
@@ -650,6 +661,8 @@ export const conversationApi = {
       githubRepo?: string;
     },
     callbacks: {
+      onInit?: (metadata: { id: string; title: string; user_message_id?: string }) => void;
+      onAck?: (data: { conversation_id: string; user_message_id?: string }) => void;
       onStatus?: (evt: { stage: string; detail: string }) => void;
       onRepoSelect?: (evt: { candidates: GitHubRepo[]; message: string }) => void;
       onRepoMeta?: (evt: { repository: string; branch: string; commit_sha?: string | null }) => void;
@@ -657,6 +670,7 @@ export const conversationApi = {
       onDone?: (data: {
         conversation_id: string;
         message_id: string;
+        user_message_id?: string;
         content: string;
         created_at: string;
         metrics?: { ttft_ms?: number; total_ms?: number; chunks?: number };

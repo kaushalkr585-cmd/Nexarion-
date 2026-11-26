@@ -147,3 +147,64 @@ test("Test H: Streaming and double-submission prevention", () => {
     "Edit button on message must be disabled while generation is active"
   );
 });
+
+test("Test I: Agent icon differentiation dynamically maps all specialized agents to distinct icons", () => {
+  const iconsPath = path.resolve(__dirname, "../icons/Icons.tsx");
+  const iconsContent = fs.readFileSync(iconsPath, "utf-8");
+
+  assert.ok(iconsContent.includes("ShieldCheckIcon"), "Icons.tsx must define ShieldCheckIcon");
+  assert.ok(iconsContent.includes("Code2Icon"), "Icons.tsx must define Code2Icon");
+  assert.ok(iconsContent.includes("GaugeIcon"), "Icons.tsx must define GaugeIcon");
+  assert.ok(iconsContent.includes("BookOpenIcon"), "Icons.tsx must define BookOpenIcon");
+  assert.ok(iconsContent.includes("FlaskConicalIcon"), "Icons.tsx must define FlaskConicalIcon");
+  assert.ok(iconsContent.includes("NetworkIcon"), "Icons.tsx must define NetworkIcon");
+  assert.ok(iconsContent.includes("WorkflowIcon"), "Icons.tsx must define WorkflowIcon");
+  assert.ok(iconsContent.includes("GitBranchIcon"), "Icons.tsx must define GitBranchIcon");
+  assert.ok(iconsContent.includes("export function getAgentIcon"), "Icons.tsx must export getAgentIcon");
+
+  const agentsPagePath = path.resolve(__dirname, "../../pages/AgentsPage.tsx");
+  const agentsContent = fs.readFileSync(agentsPagePath, "utf-8");
+  assert.ok(
+    agentsContent.includes("const AgentIconComponent = getAgentIcon(agent.agent_id, agent.name);"),
+    "AgentsPage.tsx must dynamically resolve unique agent icon"
+  );
+});
+
+test("Test J: Jump to latest button is strictly guarded and never shown on empty chats", () => {
+  const workspacePath = path.resolve(__dirname, "AIConversationWorkspace.tsx");
+  const wsContent = fs.readFileSync(workspacePath, "utf-8");
+
+  assert.ok(
+    wsContent.includes("{showJumpToLatest && messages.length > 0 && ("),
+    "Jump to latest button must be guarded with messages.length > 0"
+  );
+  assert.ok(
+    wsContent.includes("setShowJumpToLatest(distanceFromBottom > SCROLL_THRESHOLD && messages.length > 0);"),
+    "handleScroll must verify messages.length > 0 before showing jump button"
+  );
+  assert.ok(
+    wsContent.includes("if (messages.length === 0) {\n      setShowJumpToLatest(false);"),
+    "AIConversationWorkspace must reset showJumpToLatest to false when messages.length === 0"
+  );
+});
+
+test("Test K: Message editing and stream message handlers properly sync user_message_id", () => {
+  const appPath = path.resolve(__dirname, "../../App.tsx");
+  const appContent = fs.readFileSync(appPath, "utf-8");
+
+  assert.ok(
+    appContent.includes("onAck: (ackData) => {"),
+    "handleSendMessage must handle onAck callback to sync user_message_id"
+  );
+  assert.ok(
+    appContent.includes("data.user_message_id"),
+    "App.tsx must sync data.user_message_id on stream completion"
+  );
+
+  const apiPath = path.resolve(__dirname, "../../services/api.ts");
+  const apiContent = fs.readFileSync(apiPath, "utf-8");
+  assert.ok(
+    apiContent.includes("user_message_id?: string"),
+    "api.ts callbacks must include user_message_id"
+  );
+});

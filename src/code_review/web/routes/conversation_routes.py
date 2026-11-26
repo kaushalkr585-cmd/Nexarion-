@@ -1209,7 +1209,26 @@ def edit_message(
             target_index = idx
             break
 
-    if not target_msg or target_msg.role != "user":
+    if target_msg is None and (message_id.startswith("temp-") or message_id.startswith("temp-user-")):
+        for idx, m in enumerate(conversation.messages):
+            if m.role == "user" and m.content.strip() == payload.content.strip():
+                target_msg = m
+                target_index = idx
+                break
+        if target_msg is None:
+            for idx in range(len(conversation.messages) - 1, -1, -1):
+                if conversation.messages[idx].role == "user":
+                    target_msg = conversation.messages[idx]
+                    target_index = idx
+                    break
+
+    if target_msg is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Message not found in conversation.",
+        )
+
+    if target_msg.role != "user":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Only user messages can be edited.",
@@ -1335,7 +1354,26 @@ def edit_message_stream(
             target_index = idx
             break
 
-    if not target_msg or target_msg.role != "user":
+    if target_msg is None and (message_id.startswith("temp-") or message_id.startswith("temp-user-")):
+        for idx, m in enumerate(conversation.messages):
+            if m.role == "user" and m.content.strip() == payload.content.strip():
+                target_msg = m
+                target_index = idx
+                break
+        if target_msg is None:
+            for idx in range(len(conversation.messages) - 1, -1, -1):
+                if conversation.messages[idx].role == "user":
+                    target_msg = conversation.messages[idx]
+                    target_index = idx
+                    break
+
+    if target_msg is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Message not found in conversation.",
+        )
+
+    if target_msg.role != "user":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Only user messages can be edited.",
@@ -1403,6 +1441,7 @@ def edit_message_stream(
         trigger_prompt=_format_selection_turn_content(payload.content, selection_ctx)
         if selection_ctx
         else payload.content,
+        user_message_id=target_msg.id,
         user_id=user.id if user else None,
         github_mode=payload.github_mode,
         github_repo=payload.github_repo,
@@ -1486,6 +1525,7 @@ def send_message_stream(
         trigger_prompt=_format_selection_turn_content(payload.content, selection_ctx)
         if selection_ctx
         else payload.content,
+        user_message_id=user_msg.id,
         user_id=user.id if user else None,
         github_mode=payload.github_mode,
         github_repo=payload.github_repo,
@@ -1570,6 +1610,7 @@ def create_conversation_stream(
         provider=payload.provider,
         model=payload.model,
         trigger_prompt=payload.initial_message or "",
+        user_message_id=user_msg.id if user_msg else None,
         initial_conv_metadata={"id": conversation.id, "title": conversation.title},
         user_id=user.id if user else None,
         github_mode=payload.github_mode,
@@ -1668,6 +1709,7 @@ def _create_streaming_response(
     selection_context: str | None = None,
     trigger_prompt: str = "",
     target_message_id: str | None = None,
+    user_message_id: str | None = None,
     initial_conv_metadata: dict[str, str] | None = None,
     user_id: str | None = None,
     github_mode: bool = False,
@@ -1681,9 +1723,15 @@ def _create_streaming_response(
         token_count = 0
 
         if initial_conv_metadata:
-            yield f"event: init\ndata: {json.dumps(initial_conv_metadata)}\n\n"
+            init_data = dict(initial_conv_metadata)
+            if user_message_id and "user_message_id" not in init_data:
+                init_data["user_message_id"] = user_message_id
+            yield f"event: init\ndata: {json.dumps(init_data)}\n\n"
         else:
-            yield f"event: ack\ndata: {json.dumps({'conversation_id': conversation_id})}\n\n"
+            ack_data = {"conversation_id": conversation_id}
+            if user_message_id:
+                ack_data["user_message_id"] = user_message_id
+            yield f"event: ack\ndata: {json.dumps(ack_data)}\n\n"
 
         settings = get_settings()
         active_provider = (provider or settings.llm_provider or "ollama").lower().strip()
@@ -1909,6 +1957,7 @@ def _create_streaming_response(
             done_payload = {
                 "conversation_id": conversation_id,
                 "message_id": saved_msg_id,
+                "user_message_id": user_message_id,
                 "content": full_text,
                 "created_at": saved_created_at,
                 "metrics": {

@@ -427,12 +427,17 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
 
   const handleScroll = () => {
     const container = scrollContainerRef.current;
-    if (!container) return;
+    if (!container || messages.length === 0) {
+      setShowJumpToLatest(false);
+      setIsUserNearBottom(true);
+      return;
+    }
     const distanceFromBottom =
       container.scrollHeight - container.scrollTop - container.clientHeight;
-    const nearBottom = distanceFromBottom <= 60;
+    const SCROLL_THRESHOLD = 120;
+    const nearBottom = distanceFromBottom <= SCROLL_THRESHOLD;
     setIsUserNearBottom(nearBottom);
-    setShowJumpToLatest(distanceFromBottom > 60 && messages.length > 0);
+    setShowJumpToLatest(distanceFromBottom > SCROLL_THRESHOLD && messages.length > 0);
   };
 
   const handleJumpToLatest = () => {
@@ -440,6 +445,13 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
     setShowJumpToLatest(false);
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
+
+  useEffect(() => {
+    if (messages.length === 0) {
+      setShowJumpToLatest(false);
+      setIsUserNearBottom(true);
+    }
+  }, [conversation?.id, messages.length]);
 
   useEffect(() => {
     if (isSending && !prevIsSendingRef.current) {
@@ -1125,7 +1137,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
           </div>
         )}
 
-        {showJumpToLatest && (
+        {showJumpToLatest && messages.length > 0 && (
           <button
             id="jump-to-latest-btn"
             type="button"
