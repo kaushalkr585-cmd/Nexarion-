@@ -143,6 +143,18 @@ class ReviewOrchestrator:
         """Verify whether an agent is allowed under active configuration snapshot."""
         return is_agent_enabled(agent, self._enabled_agent_ids)
 
+    def get_registered_agents(self) -> list[dict[str, Any]]:
+        """Return synchronized metadata for all registered agents from the backend registry."""
+        from code_review.agents.registry import get_registered_agents
+
+        return get_registered_agents()
+
+    def get_registry_summary(self) -> dict[str, Any]:
+        """Return synchronized total/active/disabled counts including the orchestrator."""
+        from code_review.agents.registry import get_agent_registry_summary
+
+        return get_agent_registry_summary()
+
     @property
     def enabled_agent_ids(self) -> set[str] | None:
         """Return a copy of the enabled agent IDs snapshot for this orchestrator instance."""

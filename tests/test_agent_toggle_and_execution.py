@@ -68,6 +68,7 @@ def ensure_default_agents(db_session: Session):
         ("test", "Test Coverage Analysis", True, "deterministic"),
         ("semantic", "Semantic Reasoning", True, "deterministic"),
     ]
+    created_ids: list[str] = []
     for agent_id, name, is_enabled, provider in defaults:
         record = db_session.query(AgentConfigRecord).filter_by(agent_id=agent_id).first()
         if not record:
@@ -80,12 +81,17 @@ def ensure_default_agents(db_session: Session):
                 provider=provider,
             )
             db_session.add(record)
+            created_ids.append(agent_id)
         else:
             record.is_enabled = is_enabled
     db_session.commit()
     invalidate_agent_config_cache()
     yield
-    # Reset all agents to enabled after test
+    # Remove test-only alias rows created by this fixture and reset all remaining agents to enabled
+    if created_ids:
+        db_session.query(AgentConfigRecord).filter(
+            AgentConfigRecord.agent_id.in_(created_ids)
+        ).delete(synchronize_session=False)
     for record in db_session.query(AgentConfigRecord).all():
         record.is_enabled = True
     db_session.commit()

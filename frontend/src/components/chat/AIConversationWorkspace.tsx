@@ -1410,7 +1410,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                   title="Stop generating"
                   aria-label="Stop generation"
                 >
-                  <StopSquareIcon className="w-4 h-4 text-black" />
+                  <StopSquareIcon className="w-5 h-5 text-black" />
                 </button>
               ) : (
                 <button

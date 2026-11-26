@@ -109,10 +109,10 @@ export function ArrowUpIcon({ className = "w-4 h-4" }: { className?: string }) {
   );
 }
 
-export function StopSquareIcon({ className = "w-3.5 h-3.5" }: { className?: string }) {
+export function StopSquareIcon({ className = "w-4 h-4" }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
-      <rect x="6" y="6" width="12" height="12" rx="2" />
+      <rect x="3.5" y="3.5" width="17" height="17" rx="2.5" />
     </svg>
   );
 }

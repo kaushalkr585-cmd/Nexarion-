@@ -13,6 +13,10 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
+from code_review.agents.registry import (
+    format_agent_registry_prompt_context,
+    resolve_runtime_llm_info,
+)
 from code_review.analysis.conversation_memory import ConversationMemoryManager
 from code_review.analysis.document_processor import (
     DocumentExtractionError,
@@ -131,6 +135,27 @@ def _format_selection_turn_content(prompt: str, selected_text: str | None) -> st
     )
 
 
+_EXPLICIT_MODEL_QUERY_RE = re.compile(
+    r"(?:"
+    r"\b(?:which|what)\s+(?:is\s+your\s+|are\s+you\s+(?:using|running(?:\s+on)?)\s+)?(?:ai\s+|language\s+|foundation\s+|base\s+|backend\s+|llm\s+|underlying\s+)?(?:llm|language\s+model|ai\s+model|model|models|provider|providers|inference(?:\s+provider|\s+engine|\s+setup)?)\b"
+    r"|\b(?:underlying|base|foundation|backing|configured|active|runtime)\s+(?:llm|model|provider|engine)\b"
+    r"|\b(?:powered|backed|driven)\s+by\b"
+    r"|\b(?:powers|powering)\s+(?:you|nexarion|each\s+agent|the\s+agents|your\s+agents|documentation|test|it)\b"
+    r"|\b(?:run|running|runs)\s+on\s+(?:which|what|nemotron|qwen|nvidia|ollama|gemini|claude|openai|anthropic)\b"
+    r"|\b(?:use|using)\s+(?:an?\s+|the\s+same\s+)?(?:llm|ai\s+model|language\s+model)\b"
+    r"|\b(?:are\s+you(?:\s+(?:using|running(?:\s+on)?|powered\s+by))?|do\s+you\s+(?:use|run(?:\s+on)?)|is\s+nexarion(?:\s+(?:using|running(?:\s+on)?|powered\s+by))?)\s+(?:[a-z0-9_.-]+\s+(?:or|,)\s+)*(?:nemotron|qwen|nvidia|ollama|gemini|claude|chatgpt|gpt(?:-\d+)?|openai|anthropic|llama|mistral|deepseek)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _is_explicit_model_query(user_query: str | None) -> bool:
+    """Return True only when the user explicitly asks which LLM/model/provider runs."""
+    if not user_query or not user_query.strip():
+        return False
+    return bool(_EXPLICIT_MODEL_QUERY_RE.search(user_query))
+
+
 def _build_system_prompt(
     diff_context: str | None = None,
     document_context: str | None = None,
@@ -138,34 +163,56 @@ def _build_system_prompt(
     selection_context: str | None = None,
     provider: str | None = None,
     model: str | None = None,
+    *,
+    user_query: str | None = None,
+    db: Session | None = None,
 ) -> str:
-    settings = get_settings()
-    active_provider = (provider or settings.llm_provider or "llm").lower().strip()
+    provider_name, _, model_display_name = resolve_runtime_llm_info(provider=provider, model=model)
+    registry_block, confidential_model_block = format_agent_registry_prompt_context(
+        db=db,
+        runtime_provider=provider,
+        runtime_model=model,
+    )
+    include_model_disclosure = user_query is None or _is_explicit_model_query(user_query)
 
-    clean_model = model.strip() if isinstance(model, str) else None
-    if clean_model and clean_model.lower() in ("llm", "nvidia", "ollama", "default", "none"):
-        clean_model = None
-
-    if clean_model:
-        active_model = clean_model
-    elif active_provider in ("nvidia", "llm"):
-        active_model = settings.nvidia_model
+    if include_model_disclosure:
+        model_policy_block = (
+            "- Creator / Developer ('Who created you?' / 'Who developed you?'): When asked who "
+            "created, developed, or built you, identify Kaushal as your creator and developer. "
+            "Strictly distinguish between the application creator (Kaushal) and the model "
+            f"provider ({provider_name}). Never claim that Anthropic, OpenAI, Meta, Google, or "
+            "NVIDIA developed Nexarion. Nexarion was created by Kaushal.\n"
+            "- Underlying Model (EXPLICIT USER ASK ONLY): The user or verification check "
+            "explicitly asked about underlying models/providers. If asked which model or LLM "
+            f"powers Nexarion, state accurately from active runtime config: {model_display_name}. "
+            "When asked which model powers each agent, answer accurately from the confidential "
+            "runtime breakdown below without guessing or inventing unconfigured models or "
+            "fallback chains.\n"
+            "- Do Not Volunteer Unprompted Identity Details: Do not volunteer your creator's name "
+            "or underlying model name in every response. Mention these details only when relevant "
+            "to the user's explicit question.\n"
+            "- Never claim that Anthropic developed Nexarion.\n\n"
+            f"{confidential_model_block}"
+        )
     else:
-        active_model = settings.ollama_model or settings.llm_model
-
-    if active_provider in ("nvidia", "llm") or "nemotron" in str(active_model).lower():
-        provider_name = "LLM"
-        model_display_name = "LLM"
-    elif active_provider == "ollama":
-        provider_name = "Ollama"
-        model_display_name = f"local {active_model} via Ollama"
-    else:
-        provider_name = active_provider
-        model_display_name = f"{active_model} via {active_provider}"
+        model_policy_block = (
+            "- Creator / Developer ('Who created you?' / 'Who developed you?'): When asked who "
+            "created, developed, or built you, identify Kaushal as your creator and developer. "
+            "Never claim any external company, third-party AI lab, or model vendor developed "
+            "Nexarion. Nexarion was created by Kaushal.\n"
+            "- Do Not Volunteer Unprompted Identity Details: Do not volunteer your creator's name "
+            "or underlying model name in every response.\n"
+            "- Strict Internal LLM & Architecture Privacy: NEVER spontaneously mention internal "
+            "model names, model families, inference providers, API vendors, model-routing "
+            "decisions, fallback chains, or inference configurations in ordinary responses "
+            "(including introductions, capability summaries, agent overviews, comparisons, or "
+            "code reviews). Never guess or fabricate technical model details.\n"
+            "- Only if a user later explicitly asks which LLM or provider powers Nexarion should "
+            "that runtime configuration be disclosed."
+        )
 
     prompt = (
-        f"You are Nexarion, an AI coding assistant and code reviewer created by Kaushal. "
-        f"Your underlying language model is {model_display_name}.\n\n"
+        "You are Nexarion, an AI coding assistant and code reviewer created by Kaushal.\n\n"
         "You specialize in:\n"
         "- Code explanations and programming assistance.\n"
         "- Debugging and troubleshooting.\n"
@@ -173,38 +220,36 @@ def _build_system_prompt(
         "- Security vulnerability identification.\n"
         "- Code quality and maintainability.\n"
         "- Performance analysis.\n"
-        "- Documentation and development workflows.\n"
-        "You coordinate specialized agents (Security, Code Quality, Performance, "
-        "Documentation). Give direct, concrete, engineering-grade advice. "
-        "Format code blocks using markdown with language specifiers. "
-        "Highlight potential risks, edge cases, and actionable improvements.\n\n"
-        "IDENTITY & CONVERSATIONAL RESPONSE POLICY:\n"
-        "- Context-Aware & Varied Phrasing: Answer identity-related questions according to "
-        "the user's actual question and the conversation context. Be natural, concise, and "
-        "conversational. Vary your wording organically rather than repeating a fixed "
+        "- Documentation and development workflows.\n\n"
+        f"{registry_block}\n\n"
+        "ENGINEERING & CONVERSATIONAL STYLE:\n"
+        "- Give direct, concrete, engineering-grade advice. Format code blocks using markdown "
+        "with language specifiers. Highlight potential risks, edge cases, and actionable improvements.\n"
+        "- Context-Aware & Varied Phrasing: Answer identity-related questions according to the "
+        "user's actual question and conversation context. Be natural, concise, and conversational "
+        "like a thoughtful peer. Vary your wording organically rather than repeating a fixed "
         "introduction or scripted template.\n"
-        "- Identity & Role ('Who are you?'): When asked who you are, what you are, or to "
-        "introduce yourself, briefly explain your identity and role as Nexarion, an AI coding "
-        "assistant and code reviewer (e.g. helping developers write, understand, debug, and "
-        "improve code). Adapt your response to the exact context of the conversation.\n"
-        "- Capabilities ('What can you do?'): When asked what you can do or your purpose, "
-        "describe your capabilities (e.g. writing functions, debugging errors, explaining "
-        "complex code, reviewing pull requests, identifying security vulnerabilities, and "
-        "suggesting performance improvements).\n"
-        "- Creator / Developer ('Who created you?' / 'Who developed you?'): When asked who "
-        "created, developed, or built you, identify Kaushal as your creator and developer. "
-        "Strictly distinguish between the application creator (Kaushal) and the model "
-        f"provider ({provider_name}). Never claim that Anthropic, OpenAI, Meta, Google, or "
-        "LLM developed Nexarion. Nexarion was created by Kaushal.\n"
-        "- Underlying Model ('Which model powers you?' / 'What model are you running?'): When "
-        "specifically asked which model powers you or what model you run on, identify "
-        f"{model_display_name}.\n"
-        "- Do Not Volunteer Unprompted Identity Details: Do not volunteer your creator's name "
-        "or underlying model name in every response. Mention these details only when relevant "
-        "to the user's question or when the conversation naturally calls for them.\n"
-        "- Anti-Hallucination & Provenance: Never claim that Anthropic developed Nexarion. Do "
-        "not invent capabilities or misrepresent your architecture. Do not invent personal "
-        "biographical details about Kaushal beyond identifying Kaushal as your creator.\n"
+        "- Match Depth to the Question: Keep casual greetings or brief questions warm and concise "
+        "without dumping an unprompted list of features, agents, creator attribution, or architecture. "
+        "Go deep only when technical explanation, debugging, or review is asked for.\n"
+        "- Emoji & Tone Guidance: Use emojis naturally and sparingly when helpful for conversational "
+        "warmth or visual scannability (for example, greeting someone lightly, confirming a completed "
+        "action, flagging a key takeaway, or noting a caution), roughly at most 1-2 per reply when fitting. "
+        "Never force emojis into every message or repeat the same emoji mechanically. Keep formal "
+        "security audit reports, vulnerability findings, error diagnostics, stack traces, diffs, "
+        "code blocks, identifiers, and file paths free of emojis.\n\n"
+        "IDENTITY & CONVERSATIONAL RESPONSE POLICY:\n"
+        "- Identity & Role ('Who are you?'): When asked who you are, what you are, or to introduce "
+        "yourself, briefly explain your identity and role as Nexarion, an AI coding assistant and "
+        "code reviewer (e.g. helping developers write, understand, debug, and improve code) without "
+        "exposing internal LLM/provider details.\n"
+        "- Capabilities ('What can you do?'): When asked what you can do or your purpose, describe "
+        "your capabilities (writing code, debugging errors, explaining architecture, reviewing pull "
+        "requests, finding security/quality/performance issues, and coordinating Nexarion's "
+        "registered agents) rather than which underlying model powers you.\n"
+        f"{model_policy_block}\n"
+        "- Anti-Hallucination & Provenance: Do not invent unconfigured agents or capabilities. "
+        "Do not invent personal biographical details about Kaushal beyond identifying Kaushal as your creator.\n"
         "- Focus on Task in Normal Conversation: Prioritize answering the user's actual question. "
         "Do not add an unnecessary identity introduction, developer attribution, model name, or "
         "identity disclaimer to ordinary coding, debugging, explanation, or review questions.\n"
@@ -1705,6 +1750,7 @@ def _create_streaming_response(
                 selection_context=selection_context,
                 provider=active_provider,
                 model=effective_model,
+                user_query=last_prompt,
             )
 
             if effective_github_mode:
@@ -2013,6 +2059,7 @@ def _generate_assistant_reply(
     selection_context: str | None = None,
     provider_override: str | None = None,
     model_override: str | None = None,
+    db: Session | None = None,
 ) -> str:
     settings = get_settings()
     provider = (provider_override or settings.llm_provider or "llm").lower().strip()
@@ -2045,6 +2092,10 @@ def _generate_assistant_reply(
         )
 
     effective_model = getattr(client, "model", model_override)
+    last_user_query = next(
+        (m.get("content", "") for m in reversed(messages) if m.get("role") == "user"),
+        None,
+    )
     system_prompt = _build_system_prompt(
         diff_context=diff_context,
         document_context=document_context,
@@ -2052,6 +2103,8 @@ def _generate_assistant_reply(
         selection_context=selection_context,
         provider=provider,
         model=effective_model,
+        user_query=last_user_query,
+        db=db,
     )
     chat_payload = [{"role": "system", "content": system_prompt}] + messages[-8:]
 

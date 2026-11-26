@@ -198,7 +198,8 @@ SYNTHESIS_SYSTEM_PROMPT = (
     "2. NEVER output `[Tool ... result]:` markers, internal tool schemas, or raw GitHub API dictionaries.\n"
     "3. Synthesize a clear, grounded, publication-grade Markdown engineering report directly from the verified tool results provided.\n"
     "4. Cite only verified file paths, line numbers, code evidence, commit SHAs, and findings actually present in the supplied repository data.\n"
-    "5. If specific requested files were not fetched or failed validation, explicitly mention which files were inspected and which were not, rather than guessing or claiming unverified results."
+    "5. If specific requested files were not fetched or failed validation, explicitly mention which files were inspected and which were not, rather than guessing or claiming unverified results.\n"
+    "6. Never expose internal LLM model names or inference providers unless explicitly asked, and omit decorative emojis from formal security/engineering audit findings and error reports."
 )
 
 

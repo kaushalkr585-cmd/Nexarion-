@@ -141,15 +141,28 @@ def test_streaming_payload_contains_kaushal_identity():
             assert resp.status_code == 200
 
     assert len(captured_payloads) == len(test_queries)
-    for payload in captured_payloads:
+    for question, payload in zip(test_queries, captured_payloads, strict=True):
         system_msg = payload[0]
         assert system_msg["role"] == "system"
         sys_text = system_msg["content"]
         assert "Nexarion" in sys_text
         assert "Kaushal" in sys_text
-        assert "NVIDIA Nemotron Ultra" in sys_text
-        assert "Never claim that Anthropic developed Nexarion" in sys_text
         assert "Vary your wording organically" in sys_text
+        assert "Total Registered Agents:" in sys_text
+        assert "Orchestrator Agent" in sys_text
+
+        if question == "What model are you running on?":
+            assert "NVIDIA Nemotron Ultra" in sys_text
+            assert "NVIDIA NIM" in sys_text
+            assert "Never claim that Anthropic, OpenAI, Meta, Google, or NVIDIA developed Nexarion" in sys_text
+        else:
+            lowered = sys_text.lower()
+            assert "nemotron" not in lowered
+            assert "qwen" not in lowered
+            assert "gemini" not in lowered
+            assert "claude" not in lowered
+            assert "ollama" not in lowered
+            assert "nvidia" not in lowered
 
 
 def test_generate_assistant_reply_contains_kaushal_identity():
@@ -174,10 +187,26 @@ def test_generate_assistant_reply_contains_kaushal_identity():
         )
         assert "Kaushal" in reply
 
-    assert len(captured_payloads) == 1
-    system_msg = captured_payloads[0][0]
-    assert system_msg["role"] == "system"
-    assert "Kaushal" in system_msg["content"]
-    assert "qwen2.5-coder:7b" in system_msg["content"]
-    assert "Ollama" in system_msg["content"]
-    assert "Vary your wording organically" in system_msg["content"]
+        reply_model = _generate_assistant_reply(
+            conversation_id="test-conv",
+            messages=[{"role": "user", "content": "Which AI model are you using?"}],
+            provider_override="ollama",
+            model_override="qwen2.5-coder:7b",
+        )
+        assert "Kaushal" in reply_model
+
+    assert len(captured_payloads) == 2
+
+    ordinary_sys = captured_payloads[0][0]
+    assert ordinary_sys["role"] == "system"
+    assert "Kaushal" in ordinary_sys["content"]
+    assert "qwen2.5-coder:7b" not in ordinary_sys["content"]
+    assert "Ollama" not in ordinary_sys["content"]
+    assert "Vary your wording organically" in ordinary_sys["content"]
+
+    explicit_sys = captured_payloads[1][0]
+    assert explicit_sys["role"] == "system"
+    assert "Kaushal" in explicit_sys["content"]
+    assert "qwen2.5-coder:7b" in explicit_sys["content"]
+    assert "Ollama" in explicit_sys["content"]
+    assert "Vary your wording organically" in explicit_sys["content"]
