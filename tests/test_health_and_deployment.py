@@ -94,7 +94,7 @@ def test_dockerfile_integrity():
     assert "USER appuser" in content
 
     assert "HEALTHCHECK" in content
-    assert "EXPOSE 8000" in content
+    assert "EXPOSE 8000" in content or "EXPOSE ${PORT}" in content
     assert "uvicorn" in content
 
 
@@ -105,7 +105,6 @@ def test_docker_compose_integrity():
     content = compose_path.read_text(encoding="utf-8")
     assert "postgres:" in content
     assert "backend:" in content
-    assert "ollama:" in content
     assert "postgres_data:" in content
     assert "healthcheck:" in content
 

@@ -1,12 +1,16 @@
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 from sqlalchemy.orm import Session
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from code_review.config import get_settings
 from code_review.db.database import get_engine, init_database
@@ -91,11 +95,52 @@ def create_app() -> FastAPI:
     avatars_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/avatars", StaticFiles(directory=avatars_dir), name="avatars")
 
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception):
+        if isinstance(exc, (StarletteHTTPException, RequestValidationError)):
+            raise exc
+        logger.error(
+            "Unhandled server exception on %s %s: %s",
+            request.method,
+            request.url.path,
+            exc,
+            exc_info=True,
+        )
+        exc_str = str(exc).lower()
+        if (
+            "can't load plugin" in exc_str
+            or "could not connect" in exc_str
+            or "connection refused" in exc_str
+            or "operationalerror" in exc_str
+            or "password authentication failed" in exc_str
+            or "nosuchmoduleerror" in exc_str
+        ):
+            return JSONResponse(
+                status_code=500,
+                content={"detail": "Database connection error. Please verify DATABASE_URL configuration on Render."},
+            )
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "An internal server error occurred."},
+        )
+
     @app.get("/health")
     @app.get("/api/health")
-    def health_check() -> dict[str, str]:
+    def health_check() -> dict[str, Any]:
+        db_status = "ok"
+        db_error = None
+        try:
+            with get_engine().connect() as conn:
+                conn.execute(text("SELECT 1"))
+        except Exception as exc:
+            db_status = "error"
+            db_error = str(exc)
+            logger.warning("Database ping in health check failed: %s", exc)
+
         return {
-            "status": "ok",
+            "status": "ok" if db_status == "ok" else "degraded",
+            "database": db_status,
+            "database_error": db_error if settings.debug else None,
             "app": "NEXARION",
             "version": "1.0.0",
             "active_provider": settings.llm_provider,

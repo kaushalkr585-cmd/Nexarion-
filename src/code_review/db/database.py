@@ -1,4 +1,5 @@
 import logging
+import time
 from collections.abc import Generator
 from functools import lru_cache
 
@@ -15,10 +16,22 @@ class Base(DeclarativeBase):
     pass
 
 
+def normalize_database_url(url: str) -> str:
+    """Ensure standard postgresql+psycopg driver prefix for Render/Neon compatibility."""
+    if not url:
+        return url
+    clean = url.strip()
+    if clean.startswith("postgres://"):
+        return "postgresql+psycopg://" + clean[len("postgres://") :]
+    if clean.startswith("postgresql://") and not clean.startswith("postgresql+psycopg://"):
+        return "postgresql+psycopg://" + clean[len("postgresql://") :]
+    return clean
+
+
 @lru_cache(maxsize=1)
 def get_engine() -> Engine:
     settings = get_settings()
-    db_url = settings.database_url
+    db_url = normalize_database_url(settings.database_url)
     logger.info("Initializing database engine with URL schema: %s", db_url.split("://")[0])
     return create_engine(
         db_url,
@@ -43,10 +56,30 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
-def init_database() -> None:
+def init_database(max_retries: int = 3, retry_delay: float = 2.0) -> None:
     engine = get_engine()
     logger.info("Creating database tables if not present...")
-    Base.metadata.create_all(bind=engine)
+    for attempt in range(1, max_retries + 1):
+        try:
+            Base.metadata.create_all(bind=engine)
+            break
+        except Exception as exc:
+            if attempt < max_retries:
+                logger.warning(
+                    "Database table creation attempt %d/%d failed: %s. Retrying in %ss...",
+                    attempt,
+                    max_retries,
+                    exc,
+                    retry_delay,
+                )
+                time.sleep(retry_delay)
+            else:
+                logger.error(
+                    "Failed to initialize database tables after %d attempts: %s",
+                    max_retries,
+                    exc,
+                )
+                raise exc
 
     with engine.begin() as conn:
         inspector = inspect(conn)
@@ -57,15 +90,11 @@ def init_database() -> None:
             user_cols = {c["name"]: c for c in cols_info}
             if "role" not in user_cols:
                 conn.execute(
-                    text("ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'user'")
+                    text("ALTER TABLE users ADD COLUMN role VARCHAR(50) NOT NULL DEFAULT 'user'")
                 )
             if "token_version" not in user_cols:
                 conn.execute(
                     text("ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 1")
-                )
-            if "role" not in user_cols:
-                conn.execute(
-                    text("ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'user'")
                 )
             if "password_changed_at" not in user_cols:
                 col_type = (
@@ -87,6 +116,20 @@ def init_database() -> None:
                             "TYPE TIMESTAMP WITH TIME ZONE"
                         )
                     )
+
+        if "conversation_memories" in table_names:
+            mem_cols = {c["name"] for c in inspector.get_columns("conversation_memories")}
+            if "updated_at" not in mem_cols:
+                col_type = (
+                    "TIMESTAMP WITH TIME ZONE"
+                    if conn.dialect.name == "postgresql"
+                    else "TIMESTAMP"
+                )
+                conn.execute(
+                    text(
+                        f"ALTER TABLE conversation_memories ADD COLUMN updated_at {col_type} DEFAULT CURRENT_TIMESTAMP"
+                    )
+                )
 
         if "conversations" in table_names:
             columns = {c["name"] for c in inspector.get_columns("conversations")}

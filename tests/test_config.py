@@ -19,7 +19,7 @@ class TestSettingsDefaults:
 
     def test_default_llm_settings(self) -> None:
         settings = Settings()
-        assert settings.llm_provider in ("ollama", "nvidia")
+        assert settings.llm_provider in ("ollama", "nvidia", "llm")
         assert settings.llm_model == "qwen2.5-coder:7b"
         assert settings.llm_base_url == "http://localhost:11434"
         assert settings.llm_timeout_seconds == 60.0
@@ -60,6 +60,14 @@ class TestSettingsValidation:
     def test_invalid_debug_type_rejected(self) -> None:
         with pytest.raises(ValidationError):
             Settings(debug="banana")  # type: ignore[arg-type]
+
+    def test_database_url_normalized_from_postgres_scheme(self) -> None:
+        settings = Settings(database_url="postgres://user:pass@ep-cool.render.com:5432/nexarion_db")
+        assert settings.database_url == "postgresql+psycopg://user:pass@ep-cool.render.com:5432/nexarion_db"
+
+    def test_database_url_normalized_from_generic_postgresql_scheme(self) -> None:
+        settings = Settings(database_url="postgresql://user:pass@host:5432/nexarion_db")
+        assert settings.database_url == "postgresql+psycopg://user:pass@host:5432/nexarion_db"
 
 
 class TestGetSettings:

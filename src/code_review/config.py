@@ -28,8 +28,22 @@ class Settings(BaseSettings):
             clean = v.strip().lower()
             if clean in ("true", "1", "t", "yes", "y", "debug", "dev", "development"):
                 return True
-            return False
+            if clean in ("false", "0", "f", "no", "n", "prod", "production", "release", ""):
+                return False
+            raise ValueError(f"Invalid boolean value for debug: {v!r}")
         return bool(v)
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def _normalize_database_url(cls, v: Any) -> str:
+        if isinstance(v, str):
+            clean = v.strip()
+            if clean.startswith("postgres://"):
+                return "postgresql+psycopg://" + clean[len("postgres://"):]
+            if clean.startswith("postgresql://") and not clean.startswith("postgresql+psycopg://"):
+                return "postgresql+psycopg://" + clean[len("postgresql://"):]
+            return clean
+        return str(v)
 
     llm_provider: str = "llm"
     """Active LLM provider ('ollama', 'llm', or 'nvidia')."""
