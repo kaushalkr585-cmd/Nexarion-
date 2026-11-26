@@ -374,6 +374,189 @@ html, body {
   min-width: 0;
 }
 
+.nx-markdown > :first-child {
+  margin-top: 0;
+}
+
+.nx-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.nx-markdown li > ul,
+.nx-markdown li > ol {
+  margin-top: 0.35rem;
+  margin-bottom: 0.35rem;
+}
+
+.nx-markdown li > p {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.nx-markdown pre,
+.nx-markdown pre code {
+  word-break: normal;
+  overflow-wrap: normal;
+  white-space: pre;
+}
+
+.nx-markdown table th,
+.nx-markdown table td {
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
+.nx-markdown table code {
+  white-space: nowrap;
+}
+
+.nx-task-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.95rem;
+  height: 0.95rem;
+  border-radius: 0.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background-color: rgba(255, 255, 255, 0.04);
+  vertical-align: -0.15em;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.nx-task-checkbox:checked {
+  background-color: rgba(16, 185, 129, 0.2);
+  border-color: rgba(52, 211, 153, 0.65);
+}
+
+.nx-task-checkbox:checked::after {
+  content: "";
+  width: 0.3rem;
+  height: 0.52rem;
+  border: solid #34d399;
+  border-width: 0 1.75px 1.75px 0;
+  transform: rotate(45deg);
+  margin-bottom: 0.1rem;
+}
+
+/* KaTeX dark mode & overflow containment */
+.nx-markdown .katex {
+  font-size: 1.04em;
+  color: #f4f4f5;
+}
+
+.nx-markdown .katex-display {
+  margin: 0.95rem 0;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+  overscroll-behavior-x: contain;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 0.75rem;
+}
+
+.nx-markdown .katex-display > .katex {
+  display: inline-block;
+  min-width: min-content;
+  text-align: center;
+}
+
+/* Restrained Dark Syntax Highlighting Theme */
+.hljs {
+  color: #e6edf3;
+  background: transparent;
+}
+
+.hljs-doctag,
+.hljs-keyword,
+.hljs-meta .hljs-keyword,
+.hljs-template-tag,
+.hljs-template-variable,
+.hljs-type,
+.hljs-variable.language_ {
+  color: #ff7b72;
+}
+
+.hljs-title,
+.hljs-title.class_,
+.hljs-title.class_.inherited__,
+.hljs-title.function_ {
+  color: #d2a8ff;
+}
+
+.hljs-attr,
+.hljs-attribute,
+.hljs-literal,
+.hljs-meta,
+.hljs-number,
+.hljs-operator,
+.hljs-variable,
+.hljs-selector-attr,
+.hljs-selector-class,
+.hljs-selector-id {
+  color: #79c0ff;
+}
+
+.hljs-regexp,
+.hljs-string,
+.hljs-meta .hljs-string {
+  color: #a5d6ff;
+}
+
+.hljs-built_in,
+.hljs-symbol {
+  color: #ffa657;
+}
+
+.hljs-comment,
+.hljs-code,
+.hljs-formula {
+  color: #8b949e;
+  font-style: italic;
+}
+
+.hljs-name,
+.hljs-quote,
+.hljs-selector-tag,
+.hljs-selector-pseudo {
+  color: #7ee787;
+}
+
+.hljs-subst {
+  color: #e6edf3;
+}
+
+.hljs-section {
+  color: #79c0ff;
+  font-weight: 600;
+}
+
+.hljs-bullet {
+  color: #f2cc60;
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 600;
+}
+
+.hljs-addition {
+  color: #aff5b4;
+  background-color: rgba(46, 160, 67, 0.16);
+}
+
+.hljs-deletion {
+  color: #ffdcd7;
+  background-color: rgba(248, 81, 73, 0.16);
+}
+
 .overscroll-y-contain,
 .overscroll-contain {
   overscroll-behavior: contain;

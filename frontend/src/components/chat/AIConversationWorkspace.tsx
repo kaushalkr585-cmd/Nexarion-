@@ -745,7 +745,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
       <div className="flex-1 relative min-h-0 overflow-hidden flex flex-col">
         {isLoadingConversation && !conversation ? (
           <div className="flex-1 min-h-0 overflow-hidden px-3.5 sm:px-6 md:px-8 py-4 sm:py-6 flex flex-col justify-center">
-            <div className="mx-auto flex w-full max-w-2xl flex-col gap-5 pt-6" role="status" aria-live="polite">
+            <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 pt-6" role="status" aria-live="polite">
               <span className="sr-only">Loading conversation</span>
               <div className="flex justify-end">
                 <div className="h-14 w-3/4 animate-pulse rounded-2xl border border-white/10 bg-white/[0.04]" />
@@ -835,9 +835,9 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
           <div
             ref={scrollContainerRef}
             onScroll={handleScroll}
-            className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain overscroll-contain px-3.5 sm:px-6 md:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6"
+            className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain overscroll-contain px-3.5 sm:px-6 md:px-8 py-4 sm:py-6"
           >
-            <div className="space-y-6">
+            <div className="max-w-3xl mx-auto w-full space-y-6">
               {messages.map((msg, idx) => {
                 const isUser = msg.role === "user";
                 if (isUser) {
@@ -849,7 +849,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                         key={msg.id}
                         className="flex flex-col items-end gap-1 animate-fade-in scroll-mt-6 w-full"
                       >
-                        <div className="w-full max-w-[85%] sm:max-w-2xl p-4 rounded-2xl bg-neutral-900 border border-white/30 shadow-2xl text-left">
+                        <div className="w-full max-w-[92%] sm:max-w-[85%] p-4 rounded-2xl bg-neutral-900 border border-white/30 shadow-2xl text-left">
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-xs font-mono font-medium text-neutral-300">
                               Edit Message
@@ -928,7 +928,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                       className="group flex flex-col items-end gap-1 animate-fade-in scroll-mt-6"
                     >
                       <div
-                        className={`max-w-[88%] sm:max-w-2xl px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl text-sm sm:text-[15px] leading-relaxed ${
+                        className={`max-w-[88%] sm:max-w-[80%] px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl text-sm sm:text-[15px] leading-relaxed ${
                           msg.status === "error"
                             ? "bg-red-950/20 text-white border border-red-500/40"
                             : "bg-white/10 text-white border border-white/20"
@@ -1105,6 +1105,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                     key={msg.id}
                     ref={isStreamingThis ? assistantStartRef : (isLatestAssistant ? latestAssistantRef : null)}
                     message={msg}
+                    isLatest={isLatestAssistant}
                     isGenerating={isSending}
                     generationState={generationState}
                     generationType={diffContext ? "diff" : generationType}
@@ -1159,7 +1160,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
       </div>
 
       <div className="flex-shrink-0 shrink-0 px-2.5 py-2 sm:px-6 sm:py-3 md:px-8 pb-[max(0.5rem,env(safe-area-inset-bottom))] border-t border-white/10 bg-black/85 backdrop-blur-lg z-20">
-
+        <div className="max-w-3xl mx-auto w-full">
         {showDiffInput && (
           <div className="mb-2 p-2.5 sm:p-3 rounded-xl bg-neutral-900/80 border border-white/15 animate-fade-in">
             <div className="flex items-center justify-between mb-1.5">
@@ -1469,9 +1470,10 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
           </div>
         </form>
 
-        <div className="hidden sm:flex items-center justify-between mt-1.5 px-2 text-[10px] text-neutral-500 font-mono">
+        <div className="hidden sm:flex items-center justify-between mt-2 px-2 text-[10px] text-neutral-500 font-mono">
           <span>Press Enter to send, Shift + Enter for newline</span>
           <span>NEXARION Multi-Agent Intelligence</span>
+        </div>
         </div>
       </div>
 
@@ -1511,205 +1513,215 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
 });
 AIConversationWorkspace.displayName = "AIConversationWorkspace";
 
-const AssistantMessageItem = React.forwardRef<
-  HTMLDivElement,
-  {
-    message: Message;
-    isGenerating?: boolean;
-    generationState?: GenerationState;
-    generationType?: GenerationType;
-    liveStatusDetail?: string | null;
-    onSelectRepoCandidate?: (repo: GitHubRepo) => void;
-    onRegenerate: () => void;
-    onFeedback: (feedback: "helpful" | "unhelpful" | null) => void;
-    onOpenFeedback?: () => void;
-    onRetry?: () => void;
-  }
->(
-  (
+const AssistantMessageItem = React.memo(
+  React.forwardRef<
+    HTMLDivElement,
     {
-      message,
-      isGenerating,
-      generationState = "thinking",
-      generationType = "chat",
-      liveStatusDetail = null,
-      onSelectRepoCandidate,
-      onRegenerate,
-      onFeedback,
-      onOpenFeedback,
-      onRetry,
-    },
-    ref
-  ) => {
-    const contentRef = useRef<HTMLDivElement | null>(null);
+      message: Message;
+      isLatest?: boolean;
+      isGenerating?: boolean;
+      generationState?: GenerationState;
+      generationType?: GenerationType;
+      liveStatusDetail?: string | null;
+      onSelectRepoCandidate?: (repo: GitHubRepo) => void;
+      onRegenerate: () => void;
+      onFeedback: (feedback: "helpful" | "unhelpful" | null) => void;
+      onOpenFeedback?: () => void;
+      onRetry?: () => void;
+    }
+  >(
+    (
+      {
+        message,
+        isLatest = false,
+        isGenerating,
+        generationState = "thinking",
+        generationType = "chat",
+        liveStatusDetail = null,
+        onSelectRepoCandidate,
+        onRegenerate,
+        onFeedback,
+        onOpenFeedback,
+        onRetry,
+      },
+      ref
+    ) => {
+      const contentRef = useRef<HTMLDivElement | null>(null);
 
-    const isStreaming = message.status === "streaming";
-    const isError = message.status === "error";
-    const hasContent = Boolean(message.content && message.content.trim().length > 0);
-    const hasCandidates = Boolean(message.repoCandidates && message.repoCandidates.length > 0);
+      const isStreaming = message.status === "streaming";
+      const isError = message.status === "error";
+      const hasContent = Boolean(message.content && message.content.trim().length > 0);
+      const hasCandidates = Boolean(message.repoCandidates && message.repoCandidates.length > 0);
 
-    return (
-      <div ref={ref} className="group flex gap-3.5 justify-start animate-fade-in w-full scroll-mt-6">
-        <div
-          data-ask-nexarion-ignore="true"
-          className="w-8 h-8 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center flex-shrink-0 mt-0.5 select-none"
-        >
-          <span className="text-xs font-bold text-white font-mono">NX</span>
-        </div>
-
-        <div className="flex flex-col min-w-0 max-w-[92%] sm:max-w-2xl w-full">
-
-          {isStreaming && !hasContent ? (
-            <AdaptiveStatusIndicator
-              state={generationState}
-              type={generationType}
-              showAvatar={false}
-              overrideMessage={liveStatusDetail}
-            />
-          ) : (
-            <div
-              ref={contentRef}
-              className={`chat-message-content select-text px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl text-sm sm:text-[15px] leading-relaxed backdrop-blur-md shadow-sm rounded-tl-sm ${
-                isError
-                  ? "bg-red-950/20 text-neutral-200 border border-red-500/30"
-                  : "bg-black/60 text-neutral-200 border border-white/10"
-              }`}
-            >
-              {message.repoMeta && (
-                <div
-                  data-ask-nexarion-ignore="true"
-                  className="mb-2.5 pb-2 border-b border-white/10 flex flex-wrap items-center gap-2 text-[11px] font-mono text-neutral-400"
-                >
-                  <GithubIcon className="w-3.5 h-3.5 text-white flex-shrink-0" />
-                  <span className="text-white font-medium">{message.repoMeta.repository}</span>
-                  <span className="px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-neutral-300">
-                    {message.repoMeta.branch}
-                  </span>
-                  {message.repoMeta.commit_sha && (
-                    <span className="text-neutral-500">
-                      @{message.repoMeta.commit_sha.slice(0, 7)}
-                    </span>
-                  )}
-                </div>
-              )}
-
-              {hasContent && (
-                <div
-                  data-ask-nexarion-selectable={!isStreaming ? "true" : undefined}
-                  data-message-id={message.id}
-                >
-                  <MarkdownContent content={message.content} />
-                  {isStreaming && (
-                    <span className="inline-block w-1.5 h-3.5 bg-white/80 ml-0.5 align-middle animate-pulse" />
-                  )}
-                </div>
-              )}
-
-              {hasCandidates && onSelectRepoCandidate && (
-                <div
-                  data-ask-nexarion-ignore="true"
-                  className="mt-3 pt-3 border-t border-white/10 grid grid-cols-1 sm:grid-cols-2 gap-2"
-                >
-                  {message.repoCandidates!.map((repo) => (
-                    <button
-                      key={repo.full_name}
-                      type="button"
-                      disabled={isGenerating}
-                      onClick={() => onSelectRepoCandidate(repo)}
-                      className="flex flex-col items-start p-2.5 rounded-xl bg-white/[0.04] hover:bg-white/10 border border-white/15 hover:border-white/30 text-left transition-all cursor-pointer disabled:opacity-50"
-                    >
-                      <div className="w-full flex items-center justify-between gap-2">
-                        <span className="text-xs font-semibold text-white truncate">
-                          {repo.full_name}
-                        </span>
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-white/10 text-neutral-300 flex-shrink-0">
-                          {repo.private ? "Private" : "Public"}
-                        </span>
-                      </div>
-                      {repo.description && (
-                        <span className="text-[11px] text-neutral-400 line-clamp-1 mt-1">
-                          {repo.description}
-                        </span>
-                      )}
-                      <div className="flex items-center gap-2 mt-1.5 text-[10px] font-mono text-neutral-500">
-                        <span>{repo.default_branch}</span>
-                        {repo.language && <span>• {repo.language}</span>}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {isError && (
-                <div
-                  data-ask-nexarion-ignore="true"
-                  className={`${
-                    hasContent ? "mt-3 pt-3 border-t border-white/10" : ""
-                  } flex items-center justify-between gap-3 text-xs`}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="w-2 h-2 rounded-full bg-red-400 flex-shrink-0" />
-                    <span className="text-red-200 font-sans leading-relaxed">
-                      {message.error ||
-                        "Something went wrong while generating your response. Please try again."}
-                    </span>
-                  </div>
-                  {onRetry && (
-                    <button
-                      type="button"
-                      disabled={isGenerating}
-                      onClick={onRetry}
-                      className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[11px] font-mono border border-white/20 transition-colors flex-shrink-0 cursor-pointer disabled:opacity-50"
-                    >
-                      Retry
-                    </button>
-                  )}
-                </div>
-              )}
-
-              <div
-                data-ask-nexarion-ignore="true"
-                className="mt-2 flex items-center justify-between text-xs text-neutral-400 font-mono select-none"
-              >
-                {isStreaming ? (
-                  <span className="flex items-center gap-1.5 text-neutral-400">
-                    <span className="w-1.5 h-1.5 rounded-full bg-white/70 animate-pulse" />
-                    <span>
-                      {generationType === "diff"
-                        ? "Drafting review..."
-                        : generationType === "review"
-                        ? "Aggregating findings..."
-                        : "Writing response..."}
-                    </span>
-                  </span>
-                ) : (
-                  <span />
-                )}
-                <span>
-                  {new Date(message.created_at).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </span>
-              </div>
-            </div>
-          )}
-
-        {!isStreaming && !isError && (
-          <div className="opacity-95 sm:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 transition-opacity duration-150 pl-0.5 min-h-[30px] flex items-center">
-            <MessageActionToolbar
-              content={message.content}
-              feedback={message.feedback}
-              isGenerating={isGenerating}
-              onRegenerate={onRegenerate}
-              onFeedback={onFeedback}
-              onOpenFeedbackModal={onOpenFeedback}
-              contentRef={contentRef}
-            />
+      return (
+        <div ref={ref} className="group flex gap-2.5 sm:gap-3.5 justify-start animate-fade-in w-full scroll-mt-6">
+          <div
+            data-ask-nexarion-ignore="true"
+            className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-white/[0.08] border border-white/15 flex items-center justify-center flex-shrink-0 mt-0.5 select-none"
+          >
+            <span className="text-[11px] sm:text-xs font-bold text-white font-mono">NX</span>
           </div>
-        )}
-      </div>
-    </div>
-  );
-});
+
+          <div className="flex flex-col flex-1 min-w-0 max-w-full">
+            {isStreaming && !hasContent ? (
+              <AdaptiveStatusIndicator
+                state={generationState}
+                type={generationType}
+                showAvatar={false}
+                overrideMessage={liveStatusDetail}
+              />
+            ) : (
+              <div
+                ref={contentRef}
+                className={`chat-message-content select-text px-3.5 py-3 sm:px-5 sm:py-4 rounded-2xl text-[14.5px] sm:text-[15.25px] leading-[1.68] rounded-tl-sm ${
+                  isError
+                    ? "bg-red-950/20 text-neutral-200 border border-red-500/30"
+                    : "bg-[#0B0B0D]/90 text-neutral-200 border border-white/[0.11]"
+                }`}
+              >
+                {message.repoMeta && (
+                  <div
+                    data-ask-nexarion-ignore="true"
+                    className="mb-2.5 pb-2 border-b border-white/10 flex flex-wrap items-center gap-2 text-[11px] font-mono text-neutral-400"
+                  >
+                    <GithubIcon className="w-3.5 h-3.5 text-white flex-shrink-0" />
+                    <span className="text-white font-medium">{message.repoMeta.repository}</span>
+                    <span className="px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-neutral-300">
+                      {message.repoMeta.branch}
+                    </span>
+                    {message.repoMeta.commit_sha && (
+                      <span className="text-neutral-500">
+                        @{message.repoMeta.commit_sha.slice(0, 7)}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {hasContent && (
+                  <div
+                    data-ask-nexarion-selectable={!isStreaming ? "true" : undefined}
+                    data-message-id={message.id}
+                  >
+                    <MarkdownContent content={message.content} isStreaming={isStreaming} />
+                    {isStreaming && (
+                      <span className="inline-block w-1.5 h-3.5 bg-white/80 ml-0.5 align-middle animate-pulse" />
+                    )}
+                  </div>
+                )}
+
+                {hasCandidates && onSelectRepoCandidate && (
+                  <div
+                    data-ask-nexarion-ignore="true"
+                    className="mt-3 pt-3 border-t border-white/10 grid grid-cols-1 sm:grid-cols-2 gap-2"
+                  >
+                    {message.repoCandidates!.map((repo) => (
+                      <button
+                        key={repo.full_name}
+                        type="button"
+                        disabled={isGenerating}
+                        onClick={() => onSelectRepoCandidate(repo)}
+                        className="flex flex-col items-start p-2.5 rounded-xl bg-white/[0.04] hover:bg-white/10 border border-white/15 hover:border-white/30 text-left transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        <div className="w-full flex items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-white truncate">
+                            {repo.full_name}
+                          </span>
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-white/10 text-neutral-300 flex-shrink-0">
+                            {repo.private ? "Private" : "Public"}
+                          </span>
+                        </div>
+                        {repo.description && (
+                          <span className="text-[11px] text-neutral-400 line-clamp-1 mt-1">
+                            {repo.description}
+                          </span>
+                        )}
+                        <div className="flex items-center gap-2 mt-1.5 text-[10px] font-mono text-neutral-500">
+                          <span>{repo.default_branch}</span>
+                          {repo.language && <span>• {repo.language}</span>}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {isError && (
+                  <div
+                    data-ask-nexarion-ignore="true"
+                    className={`${
+                      hasContent ? "mt-3 pt-3 border-t border-white/10" : ""
+                    } flex items-center justify-between gap-3 text-xs`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-2 h-2 rounded-full bg-red-400 flex-shrink-0" />
+                      <span className="text-red-200 font-sans leading-relaxed">
+                        {message.error ||
+                          "Something went wrong while generating your response. Please try again."}
+                      </span>
+                    </div>
+                    {onRetry && (
+                      <button
+                        type="button"
+                        disabled={isGenerating}
+                        onClick={onRetry}
+                        className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[11px] font-mono border border-white/20 transition-colors flex-shrink-0 cursor-pointer disabled:opacity-50"
+                      >
+                        Retry
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                <div
+                  data-ask-nexarion-ignore="true"
+                  className="mt-2.5 flex items-center justify-between text-[11px] text-neutral-500 font-mono select-none"
+                >
+                  {isStreaming ? (
+                    <span className="flex items-center gap-1.5 text-neutral-400">
+                      <span className="w-1.5 h-1.5 rounded-full bg-white/70 animate-pulse" />
+                      <span>
+                        {generationType === "diff"
+                          ? "Drafting review..."
+                          : generationType === "review"
+                          ? "Aggregating findings..."
+                          : "Writing response..."}
+                      </span>
+                    </span>
+                  ) : (
+                    <span />
+                  )}
+                  <span>
+                    {new Date(message.created_at).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {!isStreaming && !isError && hasContent && (
+              <div
+                className={`${
+                  isLatest
+                    ? "opacity-95 sm:opacity-80 group-hover:opacity-100"
+                    : "opacity-95 sm:opacity-0 group-hover:opacity-100"
+                } group-focus-within:opacity-100 focus-within:opacity-100 transition-opacity duration-150 pl-0.5 min-h-[30px] flex items-center`}
+              >
+                <MessageActionToolbar
+                  content={message.content}
+                  feedback={message.feedback}
+                  isGenerating={isGenerating}
+                  onRegenerate={onRegenerate}
+                  onFeedback={onFeedback}
+                  onOpenFeedbackModal={onOpenFeedback}
+                  contentRef={contentRef}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+  )
+);
 AssistantMessageItem.displayName = "AssistantMessageItem";

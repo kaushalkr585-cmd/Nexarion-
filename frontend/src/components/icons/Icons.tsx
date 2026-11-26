@@ -1,3 +1,5 @@
+import React from "react";
+
 export function LogoIcon({ className = "", size = 24 }: { className?: string; size?: number }) {
   return (
     <svg

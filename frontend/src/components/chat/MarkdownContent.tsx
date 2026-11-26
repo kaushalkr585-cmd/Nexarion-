@@ -1,286 +1,359 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import type { PluggableList } from "unified";
+import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import hljs from "highlight.js/lib/common";
+import dockerfileLang from "highlight.js/lib/languages/dockerfile";
+import powershellLang from "highlight.js/lib/languages/powershell";
 import { CheckIcon, CopyIcon } from "../icons/Icons";
+import {
+  extractCodeBlockFromHast,
+  normalizeCodeLanguage,
+  preprocessMarkdown,
+  sanitizeLinkHref,
+  splitMarkdownBlocks,
+  type HastLikeNode,
+} from "./markdownUtils";
+
+if (!hljs.getLanguage("dockerfile")) {
+  hljs.registerLanguage("dockerfile", dockerfileLang);
+}
+if (!hljs.getLanguage("powershell")) {
+  hljs.registerLanguage("powershell", powershellLang);
+}
+
+const REMARK_PLUGINS: PluggableList = [remarkGfm, remarkMath];
+const REHYPE_PLUGINS: PluggableList = [
+  [
+    rehypeKatex,
+    {
+      strict: false,
+      throwOnError: false,
+      errorColor: "#a1a1aa",
+    },
+  ],
+];
 
 interface MarkdownContentProps {
   content: string;
+  isStreaming?: boolean;
 }
 
-export const CodeBlock: React.FC<{ language: string; code: string }> = ({ language, code }) => {
-  const [copied, setCopied] = useState(false);
+export const CodeBlock: React.FC<{ language: string; code: string }> = React.memo(
+  ({ language, code }) => {
+    const [copied, setCopied] = useState(false);
 
-  const handleCopyCode = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    try {
-      if (navigator.clipboard && window.isSecureContext) {
-        await navigator.clipboard.writeText(code);
-      } else {
-        const textarea = document.createElement("textarea");
-        textarea.value = code;
-        textarea.style.position = "fixed";
-        textarea.style.opacity = "0";
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand("copy");
-        document.body.removeChild(textarea);
-      }
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error("Failed to copy code block:", err);
-    }
-  };
-
-  return (
-    <div
-      data-code-block="true"
-      data-ask-nexarion-ignore="true"
-      className="my-3 rounded-xl overflow-hidden border border-white/15 bg-black/90 font-mono text-xs shadow-md w-full max-w-full"
-    >
-
-      <div className="flex items-center justify-between px-4 py-2 bg-white/[0.04] border-b border-white/10 text-neutral-300 text-xs">
-        <span className="font-semibold tracking-wider uppercase text-neutral-300">
-          {language || "code"}
-        </span>
-        <button
-          type="button"
-          onClick={handleCopyCode}
-          aria-label={copied ? "Code copied" : "Copy code"}
-          className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] transition-colors ${
-            copied
-              ? "text-emerald-400 bg-emerald-500/10 font-medium"
-              : "text-neutral-400 hover:text-white hover:bg-white/10"
-          }`}
-        >
-          {copied ? (
-            <>
-              <CheckIcon className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Copied</span>
-            </>
-          ) : (
-            <>
-              <CopyIcon className="w-3.5 h-3.5" />
-              <span>Copy code</span>
-            </>
-          )}
-        </button>
-      </div>
-
-      <pre className="p-4 overflow-x-auto overscroll-x-contain text-neutral-200 text-[13px] sm:text-sm leading-relaxed font-mono select-text cursor-text max-w-full">
-        <code className="select-text">{code}</code>
-      </pre>
-    </div>
-  );
-};
-
-export function renderInlineMarkdown(text: string): React.ReactNode[] {
-
-  const tokens = text.split(/(`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|(?<!\*)\*[^*]+(?!\*)|\[[^\]]+\]\([^)]+\))/g);
-
-  return tokens.map((token, i) => {
-    if (!token) return null;
-
-    // Inline code
-    if (token.startsWith("`") && token.endsWith("`") && token.length > 2) {
-      return (
-        <code
-          key={i}
-          className="px-1.5 py-0.5 mx-0.5 rounded bg-white/10 text-white font-mono text-xs sm:text-[13px] border border-white/15 select-text"
-        >
-          {token.slice(1, -1)}
-        </code>
-      );
-    }
-
-    // Bold
-    if (
-      (token.startsWith("**") && token.endsWith("**") && token.length > 4) ||
-      (token.startsWith("__") && token.endsWith("__") && token.length > 4)
-    ) {
-      return (
-        <strong key={i} className="font-semibold text-white select-text">
-          {token.slice(2, -2)}
-        </strong>
-      );
-    }
-
-    // Italic
-    if (
-      (token.startsWith("*") && token.endsWith("*") && token.length > 2) ||
-      (token.startsWith("_") && token.endsWith("_") && token.length > 2)
-    ) {
-      return (
-        <em key={i} className="italic text-neutral-300 select-text">
-          {token.slice(1, -1)}
-        </em>
-      );
-    }
-
-    // Links [label](url)
-    const linkMatch = token.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/);
-    if (linkMatch) {
-      return (
-        <a
-          key={i}
-          href={linkMatch[2]}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-white underline decoration-white/40 hover:decoration-white transition-colors select-text"
-        >
-          {linkMatch[1]}
-        </a>
-      );
-    }
-
-    return <span key={i}>{token}</span>;
-  });
-}
-
-// Parses non-code text blocks into paragraphs, headings, blockquotes, and lists
-function renderTextBlock(block: string, blockKey: number): React.ReactNode {
-  const lines = block.split("\n");
-  const elements: React.ReactNode[] = [];
-  let currentList: { type: "ul" | "ol"; items: string[] } | null = null;
-
-  const flushList = () => {
-    if (!currentList) return;
-    const ListTag = currentList.type;
-    const items = [...currentList.items];
-    const key = `list-${elements.length}`;
-    elements.push(
-      <ListTag
-        key={key}
-        className={`my-2 pl-5 space-y-1 ${
-          currentList.type === "ul" ? "list-disc list-outside" : "list-decimal list-outside"
-        }`}
-      >
-        {items.map((item, idx) => (
-          <li key={idx} className="leading-relaxed select-text text-sm sm:text-[15px]">
-            {renderInlineMarkdown(item)}
-          </li>
-        ))}
-      </ListTag>
+    const { id: langId, label: langLabel } = useMemo(
+      () => normalizeCodeLanguage(language),
+      [language]
     );
-    currentList = null;
-  };
 
-  for (let i = 0; i < lines.length; i++) {
-    const rawLine = lines[i];
-    const trimmed = rawLine.trim();
+    const highlightedHtml = useMemo(() => {
+      if (!code || langId === "plaintext" || !hljs.getLanguage(langId)) {
+        return null;
+      }
+      try {
+        return hljs.highlight(code, { language: langId, ignoreIllegals: true }).value;
+      } catch {
+        return null;
+      }
+    }, [code, langId]);
 
-    if (!trimmed) {
-      flushList();
-      continue;
-    }
+    const handleCopyCode = async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(code);
+        } else {
+          const textarea = document.createElement("textarea");
+          textarea.value = code;
+          textarea.style.position = "fixed";
+          textarea.style.opacity = "0";
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand("copy");
+          document.body.removeChild(textarea);
+        }
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch (err) {
+        console.error("Failed to copy code block:", err);
+      }
+    };
 
-    // Headings
-    if (trimmed.startsWith("### ")) {
-      flushList();
-      elements.push(
-        <h3 key={`h3-${i}`} className="text-base font-semibold text-white mt-3 mb-1.5 select-text">
-          {renderInlineMarkdown(trimmed.slice(4))}
-        </h3>
-      );
-      continue;
-    }
-    if (trimmed.startsWith("## ")) {
-      flushList();
-      elements.push(
-        <h2 key={`h2-${i}`} className="text-lg font-semibold text-white mt-4 mb-2 select-text">
-          {renderInlineMarkdown(trimmed.slice(3))}
-        </h2>
-      );
-      continue;
-    }
-    if (trimmed.startsWith("# ")) {
-      flushList();
-      elements.push(
-        <h1 key={`h1-${i}`} className="text-xl font-bold text-white mt-5 mb-2.5 select-text">
-          {renderInlineMarkdown(trimmed.slice(2))}
-        </h1>
-      );
-      continue;
-    }
+    return (
+      <div
+        data-code-block="true"
+        data-ask-nexarion-ignore="true"
+        className="my-3.5 rounded-xl overflow-hidden border border-white/12 bg-[#070709] font-mono text-xs shadow-sm w-full max-w-full"
+      >
+        <div className="flex items-center justify-between px-3.5 sm:px-4 py-2 bg-white/[0.04] border-b border-white/10 text-neutral-300 text-xs select-none">
+          <span className="font-mono font-medium tracking-wide text-neutral-300 text-[11.5px]">
+            {langLabel}
+          </span>
+          <button
+            type="button"
+            onClick={handleCopyCode}
+            aria-label={copied ? "Code copied" : "Copy code"}
+            className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] transition-colors cursor-pointer ${
+              copied
+                ? "text-emerald-400 bg-emerald-500/10 font-medium"
+                : "text-neutral-400 hover:text-white hover:bg-white/10"
+            }`}
+          >
+            {copied ? (
+              <>
+                <CheckIcon className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Copied</span>
+              </>
+            ) : (
+              <>
+                <CopyIcon className="w-3.5 h-3.5" />
+                <span>Copy code</span>
+              </>
+            )}
+          </button>
+        </div>
 
-    // Blockquote
-    if (trimmed.startsWith("> ")) {
-      flushList();
-      elements.push(
-        <blockquote
-          key={`quote-${i}`}
-          className="my-2 pl-3.5 border-l-2 border-white/30 text-neutral-300 italic select-text text-sm sm:text-[15px]"
-        >
-          {renderInlineMarkdown(trimmed.slice(2))}
-        </blockquote>
-      );
-      continue;
-    }
-
-    // Unordered list item
-    const ulMatch = trimmed.match(/^[-*]\s+(.*)$/);
-    if (ulMatch) {
-      if (currentList && currentList.type !== "ul") flushList();
-      if (!currentList) currentList = { type: "ul", items: [] };
-      currentList.items.push(ulMatch[1]);
-      continue;
-    }
-
-    // Ordered list item
-    const olMatch = trimmed.match(/^\d+\.\s+(.*)$/);
-    if (olMatch) {
-      if (currentList && currentList.type !== "ol") flushList();
-      if (!currentList) currentList = { type: "ol", items: [] };
-      currentList.items.push(olMatch[1]);
-      continue;
-    }
-
-    // Regular paragraph line
-    flushList();
-    elements.push(
-      <p key={`p-${i}`} className="leading-relaxed my-1.5 select-text text-sm sm:text-[15px]">
-        {renderInlineMarkdown(trimmed)}
-      </p>
+        <pre className="m-0 p-3.5 sm:p-4 overflow-x-auto overscroll-x-contain text-[#E5E7EB] text-[13px] sm:text-[13.5px] leading-[1.6] font-mono select-text cursor-text max-w-full">
+          {highlightedHtml !== null ? (
+            <code
+              className={`hljs language-${langId} select-text`}
+              dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+            />
+          ) : (
+            <code className="select-text">{code}</code>
+          )}
+        </pre>
+      </div>
     );
   }
+);
+CodeBlock.displayName = "CodeBlock";
 
-  flushList();
-
-  return (
-    <div key={blockKey} className="space-y-1">
-      {elements}
-    </div>
-  );
+function getCellAlignClass(align?: string, style?: React.CSSProperties): string {
+  const effective = align || (typeof style?.textAlign === "string" ? style.textAlign : undefined);
+  if (effective === "center") return "text-center";
+  if (effective === "right") return "text-right";
+  return "text-left";
 }
 
-// Main Markdown Content Renderer
-export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content }) => {
-  if (!content) return null;
-
-  // Handle in-progress code blocks gracefully during streaming
-  const backtickMatches = content.match(/```/g);
-  const isUnclosed = backtickMatches && backtickMatches.length % 2 !== 0;
-  const safeContent = isUnclosed ? content + "\n```" : content;
-
-  const segments = safeContent.split(/(```[\s\S]*?```)/g);
-
-  return (
-    <div className="chat-message-content select-text text-neutral-200">
-      {segments.map((segment, idx) => {
-        if (segment.startsWith("```") && segment.endsWith("```")) {
-          const firstLineBreak = segment.indexOf("\n");
-          const language =
-            firstLineBreak > 3
-              ? segment.slice(3, firstLineBreak).trim()
-              : "";
-          const code =
-            firstLineBreak !== -1
-              ? segment.slice(firstLineBreak + 1, -3)
-              : segment.slice(3, -3);
-
-          return <CodeBlock key={idx} language={language} code={code} />;
-        }
-
-        return renderTextBlock(segment, idx);
-      })}
+const MARKDOWN_COMPONENTS: Components = {
+  h1: ({ children }) => (
+    <h1 className="text-[1.3rem] sm:text-2xl font-semibold text-white tracking-tight leading-snug mt-5 mb-2.5 first:mt-0 select-text">
+      {children}
+    </h1>
+  ),
+  h2: ({ children }) => (
+    <h2 className="text-[1.125rem] sm:text-xl font-semibold text-white tracking-tight leading-snug mt-4.5 mb-2 first:mt-0 select-text">
+      {children}
+    </h2>
+  ),
+  h3: ({ children }) => (
+    <h3 className="text-base sm:text-[1.0625rem] font-semibold text-white leading-snug mt-4 mb-1.5 first:mt-0 select-text">
+      {children}
+    </h3>
+  ),
+  h4: ({ children }) => (
+    <h4 className="text-[0.9375rem] sm:text-base font-semibold text-neutral-100 leading-snug mt-3.5 mb-1.5 first:mt-0 select-text">
+      {children}
+    </h4>
+  ),
+  h5: ({ children }) => (
+    <h5 className="text-sm font-semibold text-neutral-200 leading-snug mt-3 mb-1 first:mt-0 select-text">
+      {children}
+    </h5>
+  ),
+  h6: ({ children }) => (
+    <h6 className="text-xs sm:text-[13px] font-semibold uppercase tracking-wider text-neutral-400 leading-snug mt-3 mb-1 first:mt-0 select-text">
+      {children}
+    </h6>
+  ),
+  p: ({ children }) => (
+    <p className="my-2.5 first:mt-0 last:mb-0 text-[14.5px] sm:text-[15.25px] leading-[1.68] text-neutral-200 select-text">
+      {children}
+    </p>
+  ),
+  strong: ({ children }) => (
+    <strong className="font-semibold text-white select-text">{children}</strong>
+  ),
+  em: ({ children }) => (
+    <em className="italic text-neutral-200 select-text">{children}</em>
+  ),
+  del: ({ children }) => (
+    <del className="line-through text-neutral-400/90 select-text">{children}</del>
+  ),
+  a: ({ href, children }) => {
+    const safeHref = sanitizeLinkHref(href);
+    if (!safeHref) {
+      return <span className="text-neutral-300 select-text">{children}</span>;
+    }
+    const isExternal = /^https?:\/\//i.test(safeHref);
+    return (
+      <a
+        href={safeHref}
+        target={isExternal ? "_blank" : undefined}
+        rel={isExternal ? "noopener noreferrer" : undefined}
+        className="text-white underline decoration-white/35 underline-offset-[3px] hover:decoration-white transition-colors select-text break-words"
+      >
+        {children}
+      </a>
+    );
+  },
+  blockquote: ({ children }) => (
+    <blockquote className="my-3.5 pl-4 pr-3 py-1.5 border-l-2 border-white/25 bg-white/[0.025] rounded-r-lg text-neutral-300 select-text [&>p]:my-1.5 [&>p:first-child]:mt-0 [&>p:last-child]:mb-0">
+      {children}
+    </blockquote>
+  ),
+  hr: () => <hr className="my-5 border-0 border-t border-white/12" />,
+  ul: ({ className, children }) => {
+    const isTaskList = Boolean(className && className.includes("contains-task-list"));
+    return (
+      <ul
+        className={`my-2.5 space-y-1.5 text-[14.5px] sm:text-[15.25px] leading-[1.65] text-neutral-200 ${
+          isTaskList
+            ? "list-none pl-1"
+            : "list-disc list-outside pl-5 sm:pl-6 marker:text-neutral-400"
+        }`}
+      >
+        {children}
+      </ul>
+    );
+  },
+  ol: ({ children, start }) => (
+    <ol
+      start={start}
+      className="my-2.5 list-decimal list-outside pl-5 sm:pl-6 space-y-1.5 text-[14.5px] sm:text-[15.25px] leading-[1.65] text-neutral-200 marker:text-neutral-400"
+    >
+      {children}
+    </ol>
+  ),
+  li: ({ className, children }) => {
+    const isTaskItem = Boolean(className && className.includes("task-list-item"));
+    return (
+      <li
+        className={`leading-[1.65] select-text ${
+          isTaskItem ? "list-none pl-0" : "pl-0.5"
+        }`}
+      >
+        {children}
+      </li>
+    );
+  },
+  input: ({ type, checked }) => {
+    if (type !== "checkbox") {
+      return null;
+    }
+    return (
+      <input
+        type="checkbox"
+        checked={Boolean(checked)}
+        disabled
+        readOnly
+        aria-label={checked ? "Completed task" : "Incomplete task"}
+        className="nx-task-checkbox mr-2 align-middle"
+      />
+    );
+  },
+  table: ({ children }) => (
+    <div
+      data-ask-nexarion-ignore="true"
+      className="my-4 w-full max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-white/12 bg-white/[0.02]"
+    >
+      <table className="w-full border-collapse text-left text-[13px] sm:text-sm">
+        {children}
+      </table>
     </div>
-  );
+  ),
+  thead: ({ children }) => (
+    <thead className="bg-white/[0.05] border-b border-white/12">{children}</thead>
+  ),
+  tbody: ({ children }) => (
+    <tbody className="divide-y divide-white/[0.07]">{children}</tbody>
+  ),
+  tr: ({ children }) => (
+    <tr className="hover:bg-white/[0.025] transition-colors">{children}</tr>
+  ),
+  th: ({ align, style, children }) => (
+    <th
+      style={style}
+      className={`px-3.5 py-2.5 font-semibold text-white text-xs sm:text-[13px] tracking-wide border-r border-white/[0.07] last:border-r-0 align-bottom min-w-[72px] max-w-[240px] ${getCellAlignClass(
+        align,
+        style
+      )}`}
+    >
+      {children}
+    </th>
+  ),
+  td: ({ align, style, children }) => (
+    <td
+      style={style}
+      className={`px-3.5 py-2.5 text-neutral-300 align-top leading-relaxed border-r border-white/[0.05] last:border-r-0 min-w-[72px] max-w-[320px] ${getCellAlignClass(
+        align,
+        style
+      )}`}
+    >
+      {children}
+    </td>
+  ),
+  pre: ({ node }) => {
+    const { language, code } = extractCodeBlockFromHast(node as unknown as HastLikeNode);
+    return <CodeBlock language={language} code={code} />;
+  },
+  code: ({ className, children }) => (
+    <code
+      className={`px-1.5 py-0.5 mx-[1px] rounded-md bg-white/[0.09] text-neutral-100 font-mono text-[0.85em] border border-white/10 select-text ${
+        className || ""
+      }`.trim()}
+    >
+      {children}
+    </code>
+  ),
+  img: ({ src, alt }) => {
+    const safeSrc = sanitizeLinkHref(src);
+    if (!safeSrc) return null;
+    return (
+      <img
+        src={safeSrc}
+        alt={alt || ""}
+        loading="lazy"
+        className="my-3 max-w-full rounded-xl border border-white/12 bg-black/40"
+      />
+    );
+  },
 };
+
+const MarkdownBlock: React.FC<{ block: string }> = React.memo(({ block }) => (
+  <ReactMarkdown
+    remarkPlugins={REMARK_PLUGINS}
+    rehypePlugins={REHYPE_PLUGINS}
+    components={MARKDOWN_COMPONENTS}
+  >
+    {block}
+  </ReactMarkdown>
+));
+MarkdownBlock.displayName = "MarkdownBlock";
+
+export const MarkdownContent: React.FC<MarkdownContentProps> = React.memo(
+  ({ content, isStreaming = false }) => {
+    const prepared = useMemo(
+      () => preprocessMarkdown(content, isStreaming),
+      [content, isStreaming]
+    );
+
+    const blocks = useMemo(() => splitMarkdownBlocks(prepared), [prepared]);
+
+    if (!content) return null;
+
+    return (
+      <div className="chat-message-content nx-markdown select-text text-neutral-200">
+        {blocks.map((block, idx) => (
+          <MarkdownBlock key={idx} block={block} />
+        ))}
+      </div>
+    );
+  }
+);
+MarkdownContent.displayName = "MarkdownContent";
