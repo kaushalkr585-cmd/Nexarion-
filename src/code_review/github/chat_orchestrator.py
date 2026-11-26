@@ -8,6 +8,7 @@ from collections.abc import Iterator
 from difflib import SequenceMatcher
 from typing import Any
 
+import httpx
 from sqlalchemy.orm import Session
 
 from code_review.db.models import ConversationRepositoryContextRecord, UserRecord
@@ -90,7 +91,33 @@ def looks_like_github_intent(prompt: str, has_locked_repo: bool = False) -> bool
         return True
     if any(hint in lower for hint in GITHUB_INTENT_HINTS):
         return True
-    return has_locked_repo and len(prompt.strip()) > 12
+    if has_locked_repo:
+        repo_cues = (
+            "file",
+            "files",
+            "code",
+            "directory",
+            "folder",
+            "branch",
+            "commit",
+            "pr",
+            "repo",
+            "repository",
+            "inspect",
+            "audit",
+            "security",
+            "function",
+            "class",
+            "test",
+            "tests",
+            "bug",
+            "vulnerability",
+            "issue",
+            "readme",
+            "config",
+        )
+        return any(cue in lower for cue in repo_cues)
+    return False
 
 
 def _extract_explicit_repo_slug(prompt: str) -> str | None:
@@ -194,7 +221,7 @@ SYNTHESIS_SYSTEM_PROMPT = (
     "You are Nexarion, a Senior AI Software Architect and Security Engineer created by Kaushal.\n"
     "Tool data collection is COMPLETE. No tool-calling API is active in this response phase.\n\n"
     "STRICT RESPONSE RULES:\n"
-    "1. NEVER output raw JSON tool calls (such as `{\"tool\": ...}`, `{\"tool_calls\": ...}`, `github_get_file_content`, or `<tool_call>`).\n"
+    '1. NEVER output raw JSON tool calls (such as `{"tool": ...}`, `{"tool_calls": ...}`, `github_get_file_content`, or `<tool_call>`).\n'
     "2. NEVER output `[Tool ... result]:` markers, internal tool schemas, or raw GitHub API dictionaries.\n"
     "3. Synthesize a clear, grounded, publication-grade Markdown engineering report directly from the verified tool results provided.\n"
     "4. Cite only verified file paths, line numbers, code evidence, commit SHAs, and findings actually present in the supplied repository data.\n"
@@ -240,8 +267,7 @@ def is_raw_tool_leakage(text: str) -> bool:
             parsed = json.loads(s)
             if isinstance(parsed, list) and parsed and isinstance(parsed[0], dict):
                 if any(
-                    k in parsed[0]
-                    for k in ("tool", "name", "sha", "commit", "path", "full_name")
+                    k in parsed[0] for k in ("tool", "name", "sha", "commit", "path", "full_name")
                 ):
                     return True
         except Exception:
@@ -441,9 +467,7 @@ def _format_tool_evidence_for_synthesis(
             )
             for mpath, mcontent in (data.get("manifests") or {}).items():
                 if isinstance(mcontent, str) and mcontent.strip():
-                    file_blocks[mpath] = (
-                        f"#### File: `{mpath}`\n```\n{mcontent[:3500]}\n```"
-                    )
+                    file_blocks[mpath] = f"#### File: `{mpath}`\n```\n{mcontent[:3500]}\n```"
         elif tname == "get_repository_tree" and isinstance(data, dict):
             paths = [
                 e.get("path", "")
@@ -489,7 +513,19 @@ def _format_tool_evidence_for_synthesis(
     sections.extend(trees)
 
     # Prioritize auth/security/config/server/route files first when packing source excerpts
-    priority_terms = ("auth", "middleware", "security", "server", "route", "controller", "config", "db", "package.json", "contact", "api")
+    priority_terms = (
+        "auth",
+        "middleware",
+        "security",
+        "server",
+        "route",
+        "controller",
+        "config",
+        "db",
+        "package.json",
+        "contact",
+        "api",
+    )
     sorted_paths = sorted(
         file_blocks.keys(),
         key=lambda p: (0 if any(t in p.lower() for t in priority_terms) else 1, p),
@@ -794,17 +830,27 @@ class GitHubChatOrchestrator:
                     default_branch=active_branch,
                     selected_branch=active_branch,
                 )
-            except GitHubAuthError as auth_err:
+            except (GitHubAuthError, httpx.HTTPStatusError) as auth_err:
                 mark_connection_revoked_or_expired(self.db, self.user, "revoked")
                 yield {
                     "type": "token",
-                    "chunk": f"GitHub authorization error: {auth_err}. Please reconnect your GitHub account.",
+                    "chunk": (
+                        "Your GitHub authorization has expired or was revoked. "
+                        "Please reconnect your GitHub account using the **Connect GitHub** button "
+                        "above or in **Settings** so I can inspect your repositories."
+                    ),
                 }
                 return
             except GitHubApiError as api_err:
                 yield {
                     "type": "token",
                     "chunk": f"Could not access repository `{prompt_repo_slug}`: {api_err}",
+                }
+                return
+            except Exception as unk_err:
+                yield {
+                    "type": "token",
+                    "chunk": f"Could not access repository `{prompt_repo_slug}`: {unk_err}",
                 }
                 return
         elif auth.connected:
@@ -815,17 +861,27 @@ class GitHubChatOrchestrator:
             }
             try:
                 repos = gh_service.list_repositories(limit=50)
-            except GitHubAuthError as auth_err:
+            except (GitHubAuthError, httpx.HTTPStatusError) as auth_err:
                 mark_connection_revoked_or_expired(self.db, self.user, "revoked")
                 yield {
                     "type": "token",
-                    "chunk": f"GitHub access was revoked or expired ({auth_err}). Please reconnect GitHub.",
+                    "chunk": (
+                        "Your GitHub authorization has expired or was revoked. "
+                        "Please reconnect your GitHub account using the **Connect GitHub** button "
+                        "above or in **Settings** so I can inspect your repositories."
+                    ),
                 }
                 return
             except GitHubApiError as api_err:
                 yield {
                     "type": "token",
                     "chunk": f"Failed to discover your GitHub repositories: {api_err}",
+                }
+                return
+            except Exception as unk_err:
+                yield {
+                    "type": "token",
+                    "chunk": f"Failed to discover your GitHub repositories: {unk_err}",
                 }
                 return
 
@@ -942,16 +998,18 @@ class GitHubChatOrchestrator:
             "REGISTERED TOOLS WORKFLOW:\n"
             "1. Use ONLY the registered function tools provided via the tool-calling API (e.g. `explore_repository_overview`, `get_repository_tree`, `fetch_files`, `fetch_file`, `run_security_and_quality_agents`). Never invent tool names such as `github_get_file_content`.\n"
             "2. Start by checking the repository structure (`explore_repository_overview` or `get_repository_tree`) so you have real non-empty file paths.\n"
-            "3. NEVER call `fetch_file` with an empty path (`\"\"`). Use `fetch_files` (concurrently fetches up to 10 paths in one call) to inspect key source/config files (auth, routes, controllers, middleware, DB, server entry points, manifests).\n"
-            "4. For security audits or code quality checks, pass key file paths to `run_security_and_quality_agents` with `agents=[\"security\"]` (supports Python, JS, JSX, TS, TSX, HTML, and manifests) in addition to reviewing fetched file contents.\n"
+            '3. NEVER call `fetch_file` with an empty path (`""`). Use `fetch_files` (concurrently fetches up to 10 paths in one call) to inspect key source/config files (auth, routes, controllers, middleware, DB, server entry points, manifests).\n'
+            '4. For security audits or code quality checks, pass key file paths to `run_security_and_quality_agents` with `agents=["security"]` (supports Python, JS, JSX, TS, TSX, HTML, and manifests) in addition to reviewing fetched file contents.\n'
             "5. Once sufficient files and findings are collected (usually 2–4 tool rounds), stop calling tools and write your final grounded Markdown report.\n"
-            "6. NEVER output raw JSON tool calls (`{\"tool\": ...}`), tool schemas, or unverified file paths/line numbers.\n"
+            '6. NEVER output raw JSON tool calls (`{"tool": ...}`), tool schemas, or unverified file paths/line numbers.\n'
         )
 
         sanitized_history = [
             {"role": m["role"], "content": m["content"]}
             for m in history[-8:]
-            if not (m.get("role") == "assistant" and is_raw_tool_leakage(str(m.get("content", ""))))
+            if not (
+                m.get("role") == "assistant" and is_raw_tool_leakage(str(m.get("content", "")))
+            )
         ]
         if not sanitized_history and history:
             sanitized_history = [{"role": "user", "content": prompt}]
@@ -972,10 +1030,18 @@ class GitHubChatOrchestrator:
                 }
 
             if hasattr(self.llm_client, "chat_with_tools"):
-                resp = self.llm_client.chat_with_tools(
-                    tool_messages,
-                    tools=GITHUB_TOOL_DEFINITIONS,
-                )
+                try:
+                    resp = self.llm_client.chat_with_tools(
+                        tool_messages,
+                        tools=GITHUB_TOOL_DEFINITIONS,
+                    )
+                except Exception as tool_call_err:
+                    logger.warning(
+                        "Native tool calling failed (%s); falling back to direct chat",
+                        tool_call_err,
+                    )
+                    text = self.llm_client.chat(tool_messages, json_format=False)
+                    resp = {"content": text, "tool_calls": []}
             else:
                 text = self.llm_client.chat(tool_messages, json_format=False)
                 resp = {"content": text, "tool_calls": []}
@@ -1290,7 +1356,17 @@ class GitHubChatOrchestrator:
             if ep not in candidate_paths:
                 candidate_paths.append(ep)
 
-        priority_terms = ("auth", "middleware", "security", "server", "route", "controller", "config", "db", "contact")
+        priority_terms = (
+            "auth",
+            "middleware",
+            "security",
+            "server",
+            "route",
+            "controller",
+            "config",
+            "db",
+            "contact",
+        )
         for tp in tree_paths:
             if tp in candidate_paths:
                 continue

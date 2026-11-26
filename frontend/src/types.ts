@@ -14,7 +14,7 @@ export type GenerationState =
 
 export type GenerationType = "chat" | "diff" | "review";
 
-export type NavView = "chat" | "overview" | "prs" | "agents" | "history" | "settings";
+export type NavView = "chat" | "overview" | "prs" | "agents" | "history" | "settings" | "feedback";
 
 export interface User {
   id: string;
@@ -23,6 +23,7 @@ export interface User {
   avatar_url?: string | null;
   plan?: string;
   theme: string;
+  role?: "user" | "admin" | string;
   github_connected: boolean;
   github_username?: string | null;
   auth_provider?: string;
@@ -48,6 +49,50 @@ export interface Attachment {
   content?: string;
   created_at?: string;
 }
+
+export interface FeedbackItem {
+  id: string;
+  user_id: string;
+  user?: {
+    id: string;
+    name: string;
+    email: string;
+    avatar_url?: string | null;
+    role: string;
+  } | null;
+  conversation_id?: string | null;
+  message_id?: string | null;
+  conversation_ref?: string | null;
+  message_ref?: string | null;
+  conversation_title?: string | null;
+  category: string;
+  details?: string | null;
+  reported_response: string;
+  status: "new" | "reviewing" | "resolved" | string;
+  email_notification_status: "pending" | "sent" | "failed" | string;
+  email_error?: string | null;
+  email_message_id?: string | null;
+  email_sent_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FeedbackListResponse {
+  items: FeedbackItem[];
+  total: number;
+  page: number;
+  limit: number;
+  pages: number;
+}
+
+export interface FeedbackStats {
+  total: number;
+  new_count: number;
+  reviewing_count: number;
+  resolved_count: number;
+  failed_emails: number;
+}
+
 
 export interface Message {
   id: string;

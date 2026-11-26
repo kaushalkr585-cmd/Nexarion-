@@ -154,7 +154,10 @@ def test_streaming_payload_contains_kaushal_identity():
         if question == "What model are you running on?":
             assert "NVIDIA Nemotron Ultra" in sys_text
             assert "NVIDIA NIM" in sys_text
-            assert "Never claim that Anthropic, OpenAI, Meta, Google, or NVIDIA developed Nexarion" in sys_text
+            assert (
+                "Never claim that Anthropic, OpenAI, Meta, Google, or NVIDIA developed Nexarion"
+                in sys_text
+            )
         else:
             lowered = sys_text.lower()
             assert "nemotron" not in lowered

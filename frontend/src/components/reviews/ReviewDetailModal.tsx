@@ -80,7 +80,7 @@ export const ReviewDetailModal: React.FC<ReviewDetailModalProps> = ({
             <span className="text-neutral-500 block">Active Mode</span>
             <span className="text-white font-semibold text-sm">
               {(!review.provider || review.provider.toLowerCase() === "nvidia" || review.provider.toLowerCase() === "llm")
-                ? "llm"
+                ? "LLM"
                 : review.provider}
             </span>
           </div>

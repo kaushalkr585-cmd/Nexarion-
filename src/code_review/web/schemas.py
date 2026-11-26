@@ -62,6 +62,7 @@ class UserResponse(BaseModel):
     auth_provider: str = "local"
     google_email: str | None = None
     google_linked: bool = False
+    role: str = "user"
     has_password: bool = False
     email_verified: bool = True
     pending_email: str | None = None
@@ -354,3 +355,79 @@ class ConversationSearchResult(BaseModel):
     created_at: datetime
     updated_at: datetime
     message_count: int = 0
+
+
+# ============================================================================
+# Feedback Schemas
+# ============================================================================
+
+FEEDBACK_CATEGORIES: list[str] = [
+    "Visual is unhelpful or broken",
+    "Incorrect or incomplete",
+    "Not what I asked for",
+    "Slow or buggy",
+    "Style or tone",
+    "Safety or legal concern",
+    "Other",
+]
+
+
+class FeedbackCreateRequest(BaseModel):
+    category: str = Field(..., min_length=2, max_length=100)
+    details: str | None = Field(default=None, max_length=2000)
+    conversation_id: str | None = Field(default=None, max_length=64)
+    message_id: str | None = Field(default=None, max_length=64)
+    reported_response: str = Field(default="", max_length=32768)
+
+
+class FeedbackStatusUpdateRequest(BaseModel):
+    status: str = Field(..., pattern=r"^(new|reviewing|resolved)$")
+
+
+class FeedbackUserSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    email: str
+    avatar_url: str | None = None
+    role: str = "user"
+
+
+class FeedbackResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    user_id: str
+    user: FeedbackUserSummary | None = None
+    conversation_id: str | None = None
+    message_id: str | None = None
+    conversation_ref: str | None = None
+    message_ref: str | None = None
+    conversation_title: str | None = None
+    category: str
+    details: str | None = None
+    reported_response: str
+    status: str
+    email_notification_status: str
+    email_error: str | None = None
+    email_message_id: str | None = None
+    email_sent_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class FeedbackListResponse(BaseModel):
+    items: list[FeedbackResponse]
+    total: int
+    page: int
+    limit: int
+    pages: int
+
+
+class FeedbackStatsResponse(BaseModel):
+    total: int
+    new_count: int
+    reviewing_count: int
+    resolved_count: int
+    failed_emails: int

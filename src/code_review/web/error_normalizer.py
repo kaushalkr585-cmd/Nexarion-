@@ -87,6 +87,42 @@ def normalize_ai_error(exc: Exception, provider_name: str | None = None) -> AIEr
             status_code=400,
         )
 
+    # GitHub API errors should never be misreported as AI model access errors
+    if (
+        "api.github.com" in msg
+        or "github" in msg
+        or "githubservice" in msg
+        or "githubapierror" in msg
+        or "githubautherror" in msg
+    ):
+        if "401" in msg or "unauthorized" in msg or "bad credentials" in msg:
+            return AIErrorResponse(
+                error_code="GITHUB_AUTH_ERROR",
+                user_message="Your GitHub authorization has expired or is invalid. Please reconnect your GitHub account.",
+                retryable=False,
+                status_code=401,
+            )
+        if "404" in msg or "not found" in msg:
+            return AIErrorResponse(
+                error_code="GITHUB_NOT_FOUND",
+                user_message="The requested GitHub repository or resource could not be found.",
+                retryable=False,
+                status_code=404,
+            )
+        if "403" in msg or "rate limit" in msg:
+            return AIErrorResponse(
+                error_code="GITHUB_RATE_LIMIT",
+                user_message="GitHub API rate limit exceeded or access forbidden. Please check your GitHub permissions.",
+                retryable=True,
+                status_code=403,
+            )
+        return AIErrorResponse(
+            error_code="GITHUB_ERROR",
+            user_message="Unable to communicate with GitHub. Please check your GitHub connection.",
+            retryable=True,
+            status_code=502,
+        )
+
     if (
         "unauthorized" in msg
         or "401" in msg

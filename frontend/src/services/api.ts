@@ -4,6 +4,9 @@ import type {
   Conversation,
   ConversationRepoContext,
   ConversationSearchResult,
+  FeedbackItem,
+  FeedbackListResponse,
+  FeedbackStats,
   GitHubPullRequest,
   GitHubRepo,
   GitHubStatus,
@@ -1181,3 +1184,57 @@ export const githubApi = {
     });
   },
 };
+
+export const feedbackApi = {
+  async submitFeedback(payload: {
+    category: string;
+    details?: string;
+    conversation_id?: string;
+    message_id?: string;
+    reported_response?: string;
+  }): Promise<FeedbackItem> {
+    return request<FeedbackItem>("/api/feedback", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async listFeedback(params: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    category?: string;
+    email_status?: string;
+    search?: string;
+  } = {}): Promise<FeedbackListResponse> {
+    const searchParams = new URLSearchParams();
+    if (params.page) searchParams.append("page", String(params.page));
+    if (params.limit) searchParams.append("limit", String(params.limit));
+    if (params.status && params.status !== "all") searchParams.append("status", params.status);
+    if (params.category && params.category !== "all") searchParams.append("category", params.category);
+    if (params.email_status && params.email_status !== "all") searchParams.append("email_status", params.email_status);
+    if (params.search?.trim()) searchParams.append("search", params.search.trim());
+
+    const qs = searchParams.toString();
+    return request<FeedbackListResponse>(`/api/admin/feedback${qs ? `?${qs}` : ""}`);
+  },
+
+  async getStats(): Promise<FeedbackStats> {
+    return request<FeedbackStats>("/api/admin/feedback/stats");
+  },
+
+  async getFeedback(id: string): Promise<FeedbackItem> {
+    return request<FeedbackItem>(`/api/admin/feedback/${id}`);
+  },
+
+  async updateStatus(
+    id: string,
+    status: "new" | "reviewing" | "resolved"
+  ): Promise<FeedbackItem> {
+    return request<FeedbackItem>(`/api/admin/feedback/${id}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    });
+  },
+};
+

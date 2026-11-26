@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
+import os
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -347,6 +348,62 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required. Please sign in.",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+    sync_user_admin_role(db, user)
+    return user
+
+
+def get_configured_admin_emails() -> set[str]:
+    """Return lowercased admin email allowlist from env/settings."""
+    settings = get_settings()
+    raw_values = [
+        os.environ.get("ADMIN_EMAIL", "") or settings.admin_email,
+        os.environ.get("ADMIN_EMAILS", "") or settings.admin_emails,
+    ]
+    emails: set[str] = set()
+    for raw in raw_values:
+        if not raw:
+            continue
+        for part in str(raw).split(","):
+            clean = part.strip().lower()
+            if clean and "@" in clean:
+                emails.add(clean)
+    return emails
+
+
+def sync_user_admin_role(db: Session, user: UserRecord, *, commit: bool = True) -> UserRecord:
+    """Server-side promotion when verified account matches configured ADMIN_EMAIL allowlist."""
+    allowlist = get_configured_admin_emails()
+    if not allowlist:
+        return user
+    clean_email = (user.email or "").strip().lower()
+    if clean_email in allowlist and bool(user.email_verified) and user.role != "admin":
+        user.role = "admin"
+        if commit:
+            db.commit()
+            db.refresh(user)
+    return user
+
+
+def is_admin_user(user: UserRecord | None) -> bool:
+    """Authoritative backend check for administrator privileges (never reads client input)."""
+    if not user:
+        return False
+    if (getattr(user, "role", "user") or "user").strip().lower() == "admin":
+        return True
+    allowlist = get_configured_admin_emails()
+    clean_email = (user.email or "").strip().lower()
+    return bool(clean_email and clean_email in allowlist and bool(user.email_verified))
+
+
+def get_current_admin_user(
+    user: UserRecord = Depends(get_current_user),
+) -> UserRecord:
+    """FastAPI dependency enforcing administrator access with HTTP 403 for ordinary users."""
+    if not is_admin_user(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrator authorization required.",
         )
     return user
 

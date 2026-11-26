@@ -22,6 +22,7 @@ import {
   authApi,
   clearToken,
   conversationApi,
+  feedbackApi,
   githubApi,
   overviewApi,
   prApi,
@@ -38,6 +39,7 @@ import { PullRequestsPage } from "./pages/PullRequestsPage";
 import { AgentsPage } from "./pages/AgentsPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { AdminFeedbackPage } from "./pages/AdminFeedbackPage";
 import { ReviewComposerModal } from "./components/reviews/ReviewComposerModal";
 import { ReviewDetailModal } from "./components/reviews/ReviewDetailModal";
 import { AuthModal } from "./components/modals/AuthModal";
@@ -67,6 +69,7 @@ export const App: React.FC = () => {
   const [generationType, setGenerationType] = useState<GenerationType>("chat");
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [adminNewFeedbackCount, setAdminNewFeedbackCount] = useState(0);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
     try {
       return localStorage.getItem("nexarion_sidebar_collapsed") === "true";
@@ -351,6 +354,15 @@ export const App: React.FC = () => {
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
+
+  useEffect(() => {
+    if (user?.role === "admin") {
+      feedbackApi
+        .getStats()
+        .then((s) => setAdminNewFeedbackCount(s.new_count))
+        .catch(() => {});
+    }
+  }, [user?.role]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1929,6 +1941,8 @@ export const App: React.FC = () => {
                     ? "Pull Requests"
                     : currentView === "history"
                     ? "Review History"
+                    : currentView === "feedback"
+                    ? "User Feedback"
                     : currentView}
                 </h1>
                 <span className="text-[11px] text-neutral-400 font-mono truncate block">
@@ -2052,6 +2066,7 @@ export const App: React.FC = () => {
           onOpenGitHub={() => setIsGitHubModalOpen(true)}
           reviews={reviews}
           user={user}
+          adminNewFeedbackCount={adminNewFeedbackCount}
           isLoadingConversations={isLoadingConversations}
           onOpenSettings={() => handleSelectView("settings")}
           onLogout={handleLogout}
@@ -2113,7 +2128,7 @@ export const App: React.FC = () => {
                 <span>Back</span>
               </button>
               <span className="text-xs font-mono text-neutral-400 capitalize">
-                {currentView === "prs" ? "Pull Requests" : currentView}
+                {currentView === "prs" ? "Pull Requests" : currentView === "feedback" ? "User Feedback" : currentView}
               </span>
             </div>
           )}
@@ -2308,6 +2323,16 @@ export const App: React.FC = () => {
                     setPendingReauthToken(null);
                     setPendingReauthError(null);
                   }}
+                />
+              </div>
+            )}
+
+            {currentView === "feedback" && (
+              <div className="flex-1 flex flex-col w-full h-full min-h-0 overflow-y-auto overscroll-y-contain">
+                <AdminFeedbackPage
+                  currentUser={user}
+                  onNavigateHome={() => handleSelectView("chat")}
+                  onStatsUpdated={(s) => setAdminNewFeedbackCount(s.new_count)}
                 />
               </div>
             )}

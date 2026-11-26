@@ -55,9 +55,17 @@ def init_database() -> None:
         if "users" in table_names:
             cols_info = inspector.get_columns("users")
             user_cols = {c["name"]: c for c in cols_info}
+            if "role" not in user_cols:
+                conn.execute(
+                    text("ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'user'")
+                )
             if "token_version" not in user_cols:
                 conn.execute(
                     text("ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 1")
+                )
+            if "role" not in user_cols:
+                conn.execute(
+                    text("ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'user'")
                 )
             if "password_changed_at" not in user_cols:
                 col_type = (
@@ -147,6 +155,69 @@ def init_database() -> None:
                 text(
                     "CREATE INDEX IF NOT EXISTS idx_conv_repo_ctx_user "
                     "ON conversation_repository_contexts (user_id, conversation_id)"
+                )
+            )
+        if "feedback_reports" in table_names:
+            fb_columns = {c["name"] for c in inspector.get_columns("feedback_reports")}
+            if "conversation_ref" not in fb_columns:
+                conn.execute(
+                    text(
+                        "ALTER TABLE feedback_reports ADD COLUMN conversation_ref VARCHAR(64) DEFAULT 'direct'"
+                    )
+                )
+            if "message_ref" not in fb_columns:
+                conn.execute(
+                    text(
+                        "ALTER TABLE feedback_reports ADD COLUMN message_ref VARCHAR(64) DEFAULT 'direct'"
+                    )
+                )
+            if "conversation_title" not in fb_columns:
+                conn.execute(
+                    text(
+                        "ALTER TABLE feedback_reports ADD COLUMN conversation_title VARCHAR(512) DEFAULT NULL"
+                    )
+                )
+            if "email_message_id" not in fb_columns:
+                conn.execute(
+                    text(
+                        "ALTER TABLE feedback_reports ADD COLUMN email_message_id VARCHAR(120) DEFAULT NULL"
+                    )
+                )
+
+            # Ensure conversation_id and message_id are nullable for direct or deleted conversation feedback
+            if conn.dialect.name == "postgresql":
+                try:
+                    conn.execute(
+                        text(
+                            "ALTER TABLE feedback_reports ALTER COLUMN conversation_id DROP NOT NULL"
+                        )
+                    )
+                    conn.execute(
+                        text("ALTER TABLE feedback_reports ALTER COLUMN message_id DROP NOT NULL")
+                    )
+                except Exception as exc:
+                    logger.debug("Feedback column nullability alter: %s", exc)
+
+                try:
+                    conn.execute(text("DROP INDEX IF EXISTS ix_feedback_reports_dedupe_key"))
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS ix_feedback_reports_dedupe_key ON feedback_reports (dedupe_key)"
+                        )
+                    )
+                except Exception as exc:
+                    logger.debug("Feedback dedupe_key index migration: %s", exc)
+
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_feedback_status_created "
+                    "ON feedback_reports (status, created_at DESC)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_feedback_email_status "
+                    "ON feedback_reports (email_notification_status)"
                 )
             )
     logger.info("Database schema initialized successfully.")

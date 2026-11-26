@@ -15,6 +15,7 @@ from code_review.web.routes import (
     agent_routes,
     auth_routes,
     conversation_routes,
+    feedback_routes,
     github_routes,
     overview_routes,
     pr_routes,
@@ -59,6 +60,7 @@ def create_app() -> FastAPI:
         "http://127.0.0.1:5173",
         "http://localhost:8000",
         "http://127.0.0.1:8000",
+        "https://nexarion-4yio.onrender.com",
     ]
     if settings.frontend_url and settings.frontend_url not in origins:
         origins.append(settings.frontend_url)
@@ -77,6 +79,7 @@ def create_app() -> FastAPI:
     app.include_router(review_routes.router, prefix="/api")
     app.include_router(overview_routes.router, prefix="/api")
     app.include_router(conversation_routes.router, prefix="/api")
+    app.include_router(feedback_routes.router, prefix="/api")
     app.include_router(pr_routes.router, prefix="/api")
     app.include_router(agent_routes.router, prefix="/api")
     app.include_router(provider_routes.router, prefix="/api")

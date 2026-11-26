@@ -120,7 +120,9 @@ def test_live_agent_toggle_propagates_to_system_prompt_and_stream():
 
         mock_llm.stream_chat.side_effect = mock_stream
 
-        with patch("code_review.web.routes.conversation_routes.get_llm_client", return_value=mock_llm):
+        with patch(
+            "code_review.web.routes.conversation_routes.get_llm_client", return_value=mock_llm
+        ):
             stream_resp = client.post(
                 f"/api/conversations/{conv_id}/messages/stream",
                 json={"content": "How many agents does Nexarion have right now?"},
@@ -177,6 +179,7 @@ def test_explicit_model_query_detection_and_privacy_isolation():
         "Which model powers each agent?",
         "Which provider is powering Nexarion?",
         "Are you using Gemini or Nemotron?",
+        "Are you using ChatGPT, Claude, Gemini, or Nemotron?",
     ]
     for query in explicit_queries:
         assert _is_explicit_model_query(query) is True, f"Missed explicit model query: {query}"

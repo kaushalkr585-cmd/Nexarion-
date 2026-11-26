@@ -17,6 +17,7 @@ interface MessageActionToolbarProps {
   isGenerating?: boolean;
   onRegenerate: () => void;
   onFeedback: (feedback: "helpful" | "unhelpful" | null) => void;
+  onOpenFeedbackModal?: () => void;
   contentRef?: React.RefObject<HTMLDivElement | null>;
 }
 
@@ -26,6 +27,7 @@ export const MessageActionToolbar: React.FC<MessageActionToolbarProps> = ({
   isGenerating = false,
   onRegenerate,
   onFeedback,
+  onOpenFeedbackModal,
   contentRef,
 }) => {
   const [copied, setCopied] = useState(false);
@@ -109,13 +111,21 @@ export const MessageActionToolbar: React.FC<MessageActionToolbarProps> = ({
   };
 
   const handleBadFeedback = () => {
-    onFeedback(feedback === "unhelpful" ? null : "unhelpful");
+    if (onOpenFeedbackModal) {
+      onOpenFeedbackModal();
+    } else {
+      onFeedback(feedback === "unhelpful" ? null : "unhelpful");
+    }
   };
 
   const handleReport = () => {
-    setReported(true);
     setIsMenuOpen(false);
-    setTimeout(() => setReported(false), 3000);
+    if (onOpenFeedbackModal) {
+      onOpenFeedbackModal();
+    } else {
+      setReported(true);
+      setTimeout(() => setReported(false), 3000);
+    }
   };
 
   return (
@@ -222,49 +232,12 @@ export const MessageActionToolbar: React.FC<MessageActionToolbarProps> = ({
             <button
               type="button"
               role="menuitem"
-              onClick={handleCopyResponse}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-neutral-300 hover:text-white hover:bg-white/10 transition-colors text-left"
-            >
-              <CopyIcon className="w-3 h-3 text-neutral-400" />
-              <span>Copy response</span>
-            </button>
-
-            <button
-              type="button"
-              role="menuitem"
               onClick={handleCopyMarkdown}
               className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-neutral-300 hover:text-white hover:bg-white/10 transition-colors text-left"
             >
-              <MarkdownIcon className="w-3 h-3 text-neutral-400" />
+              <MarkdownIcon className="w-3.5 h-3.5 text-neutral-400" />
               <span>{copiedMarkdown ? "Copied Markdown!" : "Copy as Markdown"}</span>
             </button>
-
-            <button
-              type="button"
-              role="menuitem"
-              onClick={handleSelectText}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-neutral-300 hover:text-white hover:bg-white/10 transition-colors text-left"
-            >
-              <SelectTextIcon className="w-3 h-3 text-neutral-400" />
-              <span>Select text</span>
-            </button>
-
-            {!isGenerating && (
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setIsMenuOpen(false);
-                  onRegenerate();
-                }}
-                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-neutral-300 hover:text-white hover:bg-white/10 transition-colors text-left"
-              >
-                <RegenerateIcon className="w-3 h-3 text-neutral-400" />
-                <span>Regenerate response</span>
-              </button>
-            )}
-
-            <div className="my-1 border-t border-white/10" />
 
             <button
               type="button"
@@ -272,7 +245,7 @@ export const MessageActionToolbar: React.FC<MessageActionToolbarProps> = ({
               onClick={handleReport}
               className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-neutral-400 hover:text-red-300 hover:bg-red-500/10 transition-colors text-left"
             >
-              <FlagIcon className="w-3 h-3 text-neutral-400" />
+              <FlagIcon className="w-3.5 h-3.5 text-neutral-400" />
               <span>Report response</span>
             </button>
           </div>

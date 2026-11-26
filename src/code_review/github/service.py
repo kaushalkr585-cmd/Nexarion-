@@ -449,6 +449,12 @@ class GitHubService:
                     return result
                 except Exception:
                     pass
+            if resp.status_code == 401:
+                raise GitHubAuthError(f"GitHub 401 Unauthorized listing repositories: {resp.text}")
+            if resp.status_code == 403:
+                raise GitHubAuthError(f"GitHub 403 Forbidden listing repositories: {resp.text}")
+            if resp.status_code == 404:
+                raise GitHubNotFoundError("GitHub repositories not found: 404")
             resp.raise_for_status()
             repos = resp.json()
             result = [self._normalize_repo(r) for r in repos]

@@ -225,9 +225,7 @@ def ensure_default_agents_seeded(
     """
     dirty = False
     for agent_data in DEFAULT_AGENT_DEFINITIONS:
-        existing = (
-            db.query(AgentConfigRecord).filter_by(agent_id=agent_data["agent_id"]).first()
-        )
+        existing = db.query(AgentConfigRecord).filter_by(agent_id=agent_data["agent_id"]).first()
         if not existing:
             db.add(
                 AgentConfigRecord(
@@ -473,9 +471,7 @@ def format_agent_registry_prompt_context(
         f"{summary['total_registered']} registered agents (current status: {orchestrator_status}); "
         "it coordinates execution across active agents, merges results, ranks priorities, "
         "and generates unified reviews.\n"
-        "- Registered Agent Details:\n"
-        + "\n".join(roster_lines)
-        + "\n- Agent Awareness Rules:\n"
+        "- Registered Agent Details:\n" + "\n".join(roster_lines) + "\n- Agent Awareness Rules:\n"
         f"  * Always state the exact registered count ({summary['total_registered']}) and "
         f"active count ({summary['active_count']}) separately when asked how many agents Nexarion has.\n"
         "  * Always include Orchestrator Agent in the registered agent count and list.\n"
@@ -485,9 +481,7 @@ def format_agent_registry_prompt_context(
         "state only their analytical/engineering roles."
     )
 
-    llm_agent_names = [
-        a["name"] for a in agents if a["provider"] in {"llm", "nvidia", "ollama"}
-    ]
+    llm_agent_names = [a["name"] for a in agents if a["provider"] in {"llm", "nvidia", "ollama"}]
     non_llm_details = [
         f"{a['name']} ({a['model_name']})"
         for a in agents

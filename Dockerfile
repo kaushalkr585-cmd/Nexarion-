@@ -10,7 +10,7 @@ RUN npm run build
 
 FROM python:3.12-slim-bookworm AS runtime
 
-LABEL maintainer="NEXARION Core Team <team@nexarion.dev>"
+LABEL maintainer="NEXARION <dev@nexarion.dev>"
 LABEL description="NEXARION Multi-Agent AI Code Review Platform"
 LABEL version="1.0.0"
 

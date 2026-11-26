@@ -192,7 +192,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = React.memo(({
                       {!r.provider ||
                       r.provider.toLowerCase() === "nvidia" ||
                       r.provider.toLowerCase() === "llm"
-                        ? "llm"
+                        ? "LLM"
                         : r.provider}
                     </span>
                   </div>

@@ -41,6 +41,9 @@ export function getViewFromPath(pathname: string): RouteState {
       return { view: "history" };
     case "/settings":
       return { view: "settings" };
+    case "/admin/feedback":
+    case "/feedback":
+      return { view: "feedback" };
     case "/assistant":
     case "/chat":
     case "/":
@@ -61,6 +64,8 @@ export function getPathFromView(view: NavView, conversationId?: string): string 
       return "/review-history";
     case "settings":
       return "/settings";
+    case "feedback":
+      return "/admin/feedback";
     case "chat":
     default:
       return conversationId ? `/c/${conversationId}` : "/";

@@ -41,6 +41,8 @@ import { getPersonalizedGreeting } from "./greetings";
 import { AdaptiveStatusIndicator } from "./AdaptiveStatusIndicator";
 import { AskNexarionSelectionHandler } from "./AskNexarionSelectionHandler";
 import { FilePreviewModal } from "./FilePreviewModal";
+import { FeedbackModal } from "./FeedbackModal";
+import { feedbackApi } from "../../services/api";
 import { ComposerIntegrationsMenu } from "./ComposerIntegrationsMenu";
 
 function formatBytes(bytes: number): string {
@@ -618,6 +620,33 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
     }
   };
 
+  const [feedbackTarget, setFeedbackTarget] = useState<{
+    messageId: string;
+    content: string;
+  } | null>(null);
+
+  const handleOpenFeedback = (messageId: string, content: string) => {
+    setFeedbackTarget({ messageId, content });
+  };
+
+  const handleSubmitFeedback = async (data: {
+    category: any;
+    details?: string;
+    messageId: string;
+    reportedResponse: string;
+  }) => {
+    await feedbackApi.submitFeedback({
+      category: data.category,
+      details: data.details,
+      conversation_id: conversation?.id || undefined,
+      message_id: data.messageId,
+      reported_response: data.reportedResponse,
+    });
+    if (onFeedbackMessage) {
+      await onFeedbackMessage(data.messageId, "unhelpful");
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       if (isComposingRef.current) return;
@@ -1071,6 +1100,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                     onSelectRepoCandidate={onSelectRepoCandidate}
                     onRegenerate={() => handleRegenerate(msg.id)}
                     onFeedback={(fb) => handleFeedback(msg.id, fb)}
+                    onOpenFeedback={() => handleOpenFeedback(msg.id, msg.content)}
                     onRetry={() => onRetryMessage && onRetryMessage(msg.id)}
                   />
                 );
@@ -1456,6 +1486,14 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
         onClose={() => setPreviewAttachment(null)}
         onDownload={handleDownloadAttachment}
       />
+
+      <FeedbackModal
+        isOpen={Boolean(feedbackTarget)}
+        onClose={() => setFeedbackTarget(null)}
+        onSubmit={handleSubmitFeedback}
+        messageId={feedbackTarget?.messageId || ""}
+        reportedResponse={feedbackTarget?.content || ""}
+      />
     </div>
   );
 });
@@ -1472,6 +1510,7 @@ const AssistantMessageItem = React.forwardRef<
     onSelectRepoCandidate?: (repo: GitHubRepo) => void;
     onRegenerate: () => void;
     onFeedback: (feedback: "helpful" | "unhelpful" | null) => void;
+    onOpenFeedback?: () => void;
     onRetry?: () => void;
   }
 >(
@@ -1485,6 +1524,7 @@ const AssistantMessageItem = React.forwardRef<
       onSelectRepoCandidate,
       onRegenerate,
       onFeedback,
+      onOpenFeedback,
       onRetry,
     },
     ref
@@ -1651,6 +1691,7 @@ const AssistantMessageItem = React.forwardRef<
               isGenerating={isGenerating}
               onRegenerate={onRegenerate}
               onFeedback={onFeedback}
+              onOpenFeedbackModal={onOpenFeedback}
               contentRef={contentRef}
             />
           </div>

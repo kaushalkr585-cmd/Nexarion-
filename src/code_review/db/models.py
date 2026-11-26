@@ -24,6 +24,7 @@ class UserRecord(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False, default="Developer")
     hashed_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    role: Mapped[str] = mapped_column(String(50), default="user", nullable=False)
     plan: Mapped[str] = mapped_column(String(50), default="", nullable=False)
     theme: Mapped[str] = mapped_column(String(20), default="dark", nullable=False)
     github_connected: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -448,3 +449,46 @@ class SecurityAuditLogRecord(Base):
         JSON().with_variant(JSONB, "postgresql"), default=dict
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class FeedbackRecord(Base):
+    __tablename__ = "feedback_reports"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    conversation_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("conversations.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    message_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("messages.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    conversation_ref: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    message_ref: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    conversation_title: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    category: Mapped[str] = mapped_column(String(100), index=True, nullable=False)
+    details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reported_response: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), default="new", nullable=False, index=True
+    )  # "new" | "reviewing" | "resolved"
+    email_notification_status: Mapped[str] = mapped_column(
+        String(20), default="pending", nullable=False, index=True
+    )  # "pending" | "sent" | "failed"
+    email_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    email_message_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    email_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    dedupe_key: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+    user: Mapped[UserRecord] = relationship("UserRecord")
+    conversation: Mapped[ConversationRecord | None] = relationship("ConversationRecord")
+    message: Mapped[MessageRecord | None] = relationship("MessageRecord")

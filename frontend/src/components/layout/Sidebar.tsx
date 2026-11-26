@@ -5,6 +5,7 @@ import { DeleteConfirmModal, ShareModal } from "../chat/ConversationModals";
 import {
   AgentIcon,
   ChatIcon,
+  FlagIcon,
   HistoryIcon,
   LogoIcon,
   LogoutIcon,
@@ -42,6 +43,7 @@ interface SidebarProps {
   onCloseMobile?: () => void;
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
+  adminNewFeedbackCount?: number;
 }
 
 export const Sidebar: React.FC<SidebarProps> = React.memo(({
@@ -71,6 +73,7 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
   onCloseMobile,
   isCollapsed = false,
   onToggleCollapse,
+  adminNewFeedbackCount = 0,
 }) => {
   const [confirmDeleteReviewId, setConfirmDeleteReviewId] = useState<string | null>(null);
   const [isDeletingReviewId, setIsDeletingReviewId] = useState<string | null>(null);
@@ -116,6 +119,16 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
     { id: "prs" as NavView, label: "Pull Requests", icon: PrIcon },
     { id: "agents" as NavView, label: "Agents", icon: AgentIcon },
     { id: "history" as NavView, label: "Review History", icon: HistoryIcon },
+    ...(user?.role === "admin"
+      ? [
+          {
+            id: "feedback" as NavView,
+            label: "User Feedback",
+            icon: FlagIcon,
+            badgeCount: adminNewFeedbackCount,
+          },
+        ]
+      : []),
   ];
 
   const activeConversations = useMemo(
@@ -470,7 +483,12 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
                   }`}
                 >
                   <Icon className={`w-[18px] h-[18px] flex-shrink-0 ${isActive ? "text-white" : "text-neutral-400"}`} />
-                  <span>{item.label}</span>
+                  <span className="truncate">{item.label}</span>
+                  {Boolean(item.badgeCount && item.badgeCount > 0) && (
+                    <span className="ml-auto px-1.5 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      {item.badgeCount}
+                    </span>
+                  )}
                 </button>
               );
             })}

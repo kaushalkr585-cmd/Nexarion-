@@ -143,7 +143,7 @@ _EXPLICIT_MODEL_QUERY_RE = re.compile(
     r"|\b(?:powers|powering)\s+(?:you|nexarion|each\s+agent|the\s+agents|your\s+agents|documentation|test|it)\b"
     r"|\b(?:run|running|runs)\s+on\s+(?:which|what|nemotron|qwen|nvidia|ollama|gemini|claude|openai|anthropic)\b"
     r"|\b(?:use|using)\s+(?:an?\s+|the\s+same\s+)?(?:llm|ai\s+model|language\s+model)\b"
-    r"|\b(?:are\s+you(?:\s+(?:using|running(?:\s+on)?|powered\s+by))?|do\s+you\s+(?:use|run(?:\s+on)?)|is\s+nexarion(?:\s+(?:using|running(?:\s+on)?|powered\s+by))?)\s+(?:[a-z0-9_.-]+\s+(?:or|,)\s+)*(?:nemotron|qwen|nvidia|ollama|gemini|claude|chatgpt|gpt(?:-\d+)?|openai|anthropic|llama|mistral|deepseek)\b"
+    r"|\b(?:are\s+you(?:\s+(?:using|running(?:\s+on)?|powered\s+by))?|do\s+you\s+(?:use|run(?:\s+on)?)|is\s+nexarion(?:\s+(?:using|running(?:\s+on)?|powered\s+by))?)\s+(?:[a-z0-9_.-]+(?:\s*,\s*(?:or\s+)?|\s+or\s+))*(?:nemotron|qwen|nvidia|ollama|gemini|claude|chatgpt|gpt(?:-\d+)?|openai|anthropic|llama|mistral|deepseek)\b"
     r")",
     re.IGNORECASE,
 )
@@ -846,6 +846,7 @@ def create_conversation(
             memory_context=memory_context,
             provider_override=payload.provider,
             model_override=payload.model,
+            db=db,
         )
         assistant_msg = MessageRecord(
             conversation_id=conversation.id,
@@ -1004,6 +1005,7 @@ def send_message(
     try:
         ConversationMemoryManager.index_message(db, user_msg, user_id=user.id if user else None)
     except Exception as mem_err:
+        db.rollback()
         logger.warning("Failed to index user prompt memory: %s", mem_err)
 
     doc_context, _ = _resolve_document_context(
@@ -1040,6 +1042,7 @@ def send_message(
         selection_context=selection_ctx,
         provider_override=payload.provider,
         model_override=payload.model,
+        db=db,
     )
 
     assistant_msg = MessageRecord(
@@ -1142,6 +1145,7 @@ def regenerate_message(
         memory_context=memory_context,
         provider_override=payload.provider,
         model_override=payload.model,
+        db=db,
     )
 
     if target_msg and target_msg.role == "assistant":
@@ -1270,6 +1274,7 @@ def edit_message(
         selection_context=selection_ctx,
         provider_override=payload.provider,
         model_override=payload.model,
+        db=db,
     )
 
     assistant_msg = MessageRecord(
@@ -1438,6 +1443,7 @@ def send_message_stream(
     try:
         ConversationMemoryManager.index_message(db, user_msg, user_id=user.id if user else None)
     except Exception as mem_err:
+        db.rollback()
         logger.warning("Failed to index user prompt memory: %s", mem_err)
 
     doc_context, _ = _resolve_document_context(

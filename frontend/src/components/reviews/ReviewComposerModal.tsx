@@ -230,13 +230,6 @@ export const ReviewComposerModal: React.FC<ReviewComposerModalProps> = ({
 
           <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-white/10 text-xs">
             <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <span className="text-neutral-400 font-mono">Inference:</span>
-                <span className="text-xs font-mono text-neutral-300 bg-white/10 px-2.5 py-1 rounded-lg border border-white/15">
-                  Cloud — Nemotron
-                </span>
-              </div>
-
               <label className="flex items-center gap-2 cursor-pointer text-neutral-300">
                 <input
                   type="checkbox"

@@ -190,6 +190,18 @@ class Settings(BaseSettings):
     attachment_retention_days: int = 30
     """Retention duration in days for uploaded document attachments."""
 
+    resend_api_key: str = ""
+    """API key for Resend transactional email delivery."""
+
+    admin_email: str = ""
+    """Primary administrator email address for feedback notifications and role bootstrap."""
+
+    admin_emails: str = ""
+    """Optional comma-separated list of administrator email addresses."""
+
+    email_from: str = ""
+    """Sender address for outbound Resend notifications (e.g. onboarding@resend.dev)."""
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
