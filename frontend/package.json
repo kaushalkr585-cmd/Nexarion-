@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "npx tsx --test src/components/chat/greetings.test.mjs src/components/chat/context_menu.test.mjs src/components/chat/document_title_and_history_header.test.mjs src/components/chat/welcome_message.test.mjs src/components/chat/edit_message.test.mjs src/components/chat/conversation_sharing.test.mjs src/components/chat/github_composer_integration.test.mjs src/components/chat/security_account_and_selection.test.mjs src/components/chat/feedback_and_cleanup.test.mjs src/components/chat/markdown_renderer.test.mjs"
+    "test": "npx tsx --test src/components/chat/greetings.test.mjs src/components/chat/context_menu.test.mjs src/components/chat/document_title_and_history_header.test.mjs src/components/chat/welcome_message.test.mjs src/components/chat/edit_message.test.mjs src/components/chat/conversation_sharing.test.mjs src/components/chat/github_composer_integration.test.mjs src/components/chat/security_account_and_selection.test.mjs src/components/chat/feedback_and_cleanup.test.mjs src/components/chat/markdown_renderer.test.mjs src/utils/download_attachment.test.mjs"
   },
   "dependencies": {
     "@types/zxcvbn": "^4.4.5",

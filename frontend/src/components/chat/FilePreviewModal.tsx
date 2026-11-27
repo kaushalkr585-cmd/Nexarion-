@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Attachment } from "../../types";
 import { attachmentApi } from "../../services/api";
 import {
@@ -46,6 +47,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
       return;
     }
 
+    setContent("");
     if (attachment.file && attachment.file_type !== "pdf") {
       const reader = new FileReader();
       reader.onload = () => {
@@ -88,6 +90,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
 
   if (!isOpen || !attachment) return null;
 
+  const effectiveContent = attachment.content || content;
   const isDiff =
     attachment.file_type === "diff" ||
     attachment.filename.endsWith(".diff") ||
@@ -123,7 +126,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   const renderDiffLines = (diffText: string) => {
     const lines = diffText.split("\n");
     return (
-      <div className="font-mono text-xs leading-5 select-text">
+      <div className="font-mono text-[11px] sm:text-xs leading-5 select-text min-w-max">
         {lines.map((line, idx) => {
           let lineBg = "hover:bg-white/[0.03]";
           let lineText = "text-neutral-300";
@@ -145,16 +148,16 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
           return (
             <div
               key={idx}
-              className={`flex items-start px-3 py-0.5 ${lineBg} font-mono`}
+              className={`flex items-start px-2.5 sm:px-3 py-0.5 ${lineBg} font-mono`}
             >
-              <span className="w-10 flex-shrink-0 text-right pr-3 select-none text-[10px] text-neutral-600">
+              <span className="w-8 sm:w-10 flex-shrink-0 text-right pr-2 sm:pr-3 select-none text-[10px] text-neutral-600">
                 {idx + 1}
               </span>
               <span className="w-4 flex-shrink-0 select-none text-[10px] font-bold text-neutral-500">
                 {lineSign !== " " ? lineSign : ""}
               </span>
-              <span className={`flex-1 whitespace-pre-wrap break-all ${lineText}`}>
-                {line}
+              <span className={`whitespace-pre pr-3 ${lineText}`}>
+                {line || " "}
               </span>
             </div>
           );
@@ -166,16 +169,16 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   const renderCodeLines = (codeText: string) => {
     const lines = codeText.split("\n");
     return (
-      <div className="font-mono text-xs leading-5 select-text">
+      <div className="font-mono text-[11px] sm:text-xs leading-5 select-text min-w-max">
         {lines.map((line, idx) => (
           <div
             key={idx}
-            className="flex items-start px-3 py-0.5 hover:bg-white/[0.03]"
+            className="flex items-start px-2.5 sm:px-3 py-0.5 hover:bg-white/[0.03]"
           >
-            <span className="w-10 flex-shrink-0 text-right pr-3 select-none text-[10px] text-neutral-600">
+            <span className="w-8 sm:w-10 flex-shrink-0 text-right pr-2 sm:pr-3 select-none text-[10px] text-neutral-600">
               {idx + 1}
             </span>
-            <span className="flex-1 whitespace-pre-wrap break-all text-neutral-200">
+            <span className="whitespace-pre pr-3 text-neutral-200">
               {line || " "}
             </span>
           </div>
@@ -184,42 +187,41 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     );
   };
 
-  return (
+  const modalContent = (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-fade-in"
+      className="fixed inset-0 z-[70] flex items-stretch md:items-center justify-center p-0 md:p-6 bg-black/85 backdrop-blur-md animate-fade-in overflow-hidden"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-labelledby="file-preview-title"
     >
       <div
-        className="relative w-full max-w-4xl max-h-[90vh] flex flex-col bg-neutral-950 border border-white/15 rounded-2xl shadow-2xl overflow-hidden"
+        className="relative w-full h-[100dvh] max-h-[100dvh] md:h-auto md:max-h-[90dvh] md:max-w-4xl flex flex-col bg-neutral-950 md:border md:border-white/15 rounded-none md:rounded-2xl shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-
-        <header className="flex-shrink-0 flex items-center justify-between px-5 py-3.5 border-b border-white/10 bg-black/70">
-          <div className="flex items-center gap-3 min-w-0">
+        <header className="sticky top-0 z-20 flex-shrink-0 flex items-center justify-between gap-2 sm:gap-3 px-3 sm:px-5 py-2.5 sm:py-3.5 pt-[max(0.625rem,env(safe-area-inset-top))] md:pt-3.5 border-b border-white/10 bg-black/95 backdrop-blur-md">
+          <div className="flex items-center gap-2.5 sm:gap-3 flex-1 min-w-0">
             <div className="p-2 rounded-xl bg-white/5 border border-white/10 flex-shrink-0">
               {renderFileIcon()}
             </div>
-            <div className="min-w-0">
+            <div className="flex-1 min-w-0">
               <h2
                 id="file-preview-title"
-                className="text-sm font-semibold text-white truncate max-w-md font-mono"
+                className="text-xs sm:text-sm font-semibold text-white truncate font-mono"
                 title={attachment.filename}
               >
                 {attachment.filename}
               </h2>
-              <div className="flex items-center gap-2 mt-0.5 text-[11px] text-neutral-400 font-mono">
-                <span>{formatBytes(attachment.file_size)}</span>
+              <div className="flex items-center gap-1.5 sm:gap-2 mt-0.5 text-[10px] sm:text-[11px] text-neutral-400 font-mono truncate">
+                <span className="shrink-0">{formatBytes(attachment.file_size)}</span>
                 {attachment.page_count ? (
                   <>
-                    <span>•</span>
-                    <span>{attachment.page_count} pages</span>
+                    <span className="shrink-0">•</span>
+                    <span className="shrink-0">{attachment.page_count} pages</span>
                   </>
                 ) : null}
-                <span>•</span>
-                <span className="uppercase text-neutral-300 font-semibold">
+                <span className="shrink-0">•</span>
+                <span className="uppercase text-neutral-300 font-semibold truncate">
                   {isDiff
                     ? "Unified Diff"
                     : isPdf
@@ -232,16 +234,16 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
             <button
               type="button"
               onClick={handleDownloadClick}
               disabled={isDownloading}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/15 text-xs font-mono transition-colors cursor-pointer disabled:opacity-50"
+              className="min-h-[40px] min-w-[40px] sm:min-h-[36px] flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 active:bg-white/25 text-white border border-white/15 text-xs font-mono transition-colors cursor-pointer disabled:opacity-50"
               title="Download file"
               aria-label={`Download ${attachment.filename}`}
             >
-              <DownloadIcon className="w-3.5 h-3.5" />
+              <DownloadIcon className="w-4 h-4 sm:w-3.5 sm:h-3.5 flex-shrink-0" />
               <span className="hidden sm:inline">
                 {isDownloading ? "Downloading..." : "Download"}
               </span>
@@ -249,7 +251,8 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="p-1.5 rounded-xl text-neutral-400 hover:text-white hover:bg-white/10 transition-colors"
+              className="min-h-[40px] min-w-[40px] sm:min-h-[36px] flex items-center justify-center rounded-xl bg-white/[0.06] sm:bg-transparent hover:bg-white/15 active:bg-white/25 text-neutral-200 sm:text-neutral-400 hover:text-white border border-white/10 sm:border-transparent transition-colors cursor-pointer"
+              title="Close preview"
               aria-label="Close preview"
             >
               <CloseIcon className="w-4 h-4" />
@@ -257,9 +260,9 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
           </div>
         </header>
 
-        <div className="flex-1 overflow-auto p-4 bg-black/40 min-h-[280px]">
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain p-2.5 sm:p-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:pb-4 bg-black/40">
           {isLoading ? (
-            <div className="h-64 flex flex-col items-center justify-center space-y-3 font-mono text-xs text-neutral-400">
+            <div className="h-48 sm:h-64 flex flex-col items-center justify-center space-y-3 font-mono text-xs text-neutral-400">
               <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
               <span>Loading file preview...</span>
             </div>
@@ -275,15 +278,15 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                 <span>Download {attachment.filename}</span>
               </button>
             </div>
-          ) : content ? (
-            <div className="rounded-xl border border-white/10 bg-black/60 overflow-hidden">
+          ) : effectiveContent ? (
+            <div className="rounded-xl border border-white/10 bg-black/60 overflow-x-auto overscroll-x-contain max-w-full">
               {isDiff
-                ? renderDiffLines(content)
+                ? renderDiffLines(effectiveContent)
                 : isCode
-                ? renderCodeLines(content)
+                ? renderCodeLines(effectiveContent)
                 : (
-                  <div className="p-4 text-xs font-mono text-neutral-200 whitespace-pre-wrap select-text leading-relaxed">
-                    {content}
+                  <div className="p-3.5 sm:p-4 text-xs font-mono text-neutral-200 whitespace-pre-wrap break-words select-text leading-relaxed">
+                    {effectiveContent}
                   </div>
                 )}
             </div>
@@ -296,4 +299,6 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
       </div>
     </div>
   );
+
+  return typeof document !== "undefined" ? createPortal(modalContent, document.body) : modalContent;
 };
