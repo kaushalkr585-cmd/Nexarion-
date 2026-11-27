@@ -21,6 +21,7 @@ from code_review.llm.nemotron_client import (
     DEFAULT_NVIDIA_MODEL,
     NemotronClient,
     NemotronResponseError,
+    reset_model_cooldowns,
 )
 from code_review.web.app import create_app
 from code_review.web.routes import conversation_routes
@@ -157,6 +158,7 @@ def test_thinking_enabled_for_provided_code_blocks():
 
 
 def test_nemotron_client_fallback_on_timeout_and_fail_fast_on_401():
+    reset_model_cooldowns()
     attempted_models: list[str] = []
 
     def timeout_then_ok_handler(request: httpx.Request) -> httpx.Response:
@@ -390,4 +392,66 @@ def test_performance_monitor_statistics_and_isolation():
     assert pm_bucket["requests"] == 3
     assert pm_bucket["timeouts"] == 1
     assert pm_bucket["fallbacks"] == 1
+
+
+def test_nemotron_model_cooldown_reorders_stalled_primary_and_resets():
+    from code_review.llm.nemotron_client import _mark_model_unhealthy
+
+    reset_model_cooldowns()
+    nc = NemotronClient(api_key="nvapi-test-key", model="nvidia/nemotron-3-ultra-550b-a55b")
+    assert nc._candidate_models()[0] == "nvidia/nemotron-3-ultra-550b-a55b"
+
+    _mark_model_unhealthy("nvidia/nemotron-3-ultra-550b-a55b", cooldown=60.0)
+    reordered = nc._candidate_models()
+    assert reordered[0] == DEFAULT_NVIDIA_MODEL
+    assert reordered[-1] == "nvidia/nemotron-3-ultra-550b-a55b"
+
+    reset_model_cooldowns()
+    assert nc._candidate_models()[0] == "nvidia/nemotron-3-ultra-550b-a55b"
+
+
+def test_github_orchestrator_stream_runs_async_and_completes_without_timeout(isolated_api_client):
+    client, _ = isolated_api_client
+
+    class FakeSlowGitHubOrch:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def run_stream(self, *, prompt: str, history, explicit_repo=None):
+            yield {"type": "status", "stage": "connecting", "detail": "Connecting to GitHub..."}
+            yield {
+                "type": "meta",
+                "repository": "owner/Vortx",
+                "branch": "main",
+                "commit_sha": "022c049",
+            }
+            yield {"type": "token", "chunk": "# Repository Inspection: owner/Vortx\n\nComplete."}
+
+    mock_llm = MagicMock()
+    mock_llm.model = DEFAULT_NVIDIA_MODEL
+    mock_llm.is_available.return_value = True
+
+    with (
+        patch.object(conversation_routes, "get_llm_client", return_value=mock_llm),
+        patch.object(conversation_routes, "GitHubChatOrchestrator", FakeSlowGitHubOrch),
+    ):
+        resp = client.post(
+            "/api/conversations/stream",
+            json={
+                "initial_message": "inspect my vortx repository",
+                "mode": "github",
+                "github_mode": True,
+                "provider": "nvidia",
+            },
+        )
+        assert resp.status_code == 200
+        events = _parse_sse(resp.text)
+
+    evt_names = [n for n, _ in events]
+    assert "repo_meta" in evt_names
+    assert "token" in evt_names
+    assert "done" in evt_names
+    done_evt = next(p for n, p in events if n == "done")
+    assert "Repository Inspection: owner/Vortx" in done_evt["content"]
+
 

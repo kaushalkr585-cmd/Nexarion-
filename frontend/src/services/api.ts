@@ -224,7 +224,7 @@ export async function readSSEStream(
   let sawTerminalEvent = false;
   let idleTimedOut = false;
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
-  const idleMs = callbacks.idleTimeoutMs ?? 35000;
+  const idleMs = callbacks.idleTimeoutMs ?? 45000;
 
   const clearIdleTimer = () => {
     if (idleTimer !== null) {

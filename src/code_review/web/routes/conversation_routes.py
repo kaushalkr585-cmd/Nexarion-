@@ -2252,36 +2252,89 @@ def _create_streaming_response(
             t_model_start = time.perf_counter()
 
             if resolved_plan.use_github_orchestrator:
+                evt_queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
+                stop_event = threading.Event()
+                loop = asyncio.get_running_loop()
                 session_factory = get_session_factory()
-                with session_factory() as gh_db:
-                    user_rec = (
-                        gh_db.query(UserRecord).filter(UserRecord.id == user_id).first()
-                        if user_id
-                        else None
-                    )
-                    gh_orch = GitHubChatOrchestrator(
-                        db=gh_db,
-                        user=user_rec,
-                        conversation_id=conversation_id,
-                        llm_client=client,
-                        base_system_prompt=system_prompt,
-                        chat_mode=resolved_plan.mode,
-                        allowed_tools=resolved_plan.allowed_tools,
-                        persist_repo_context=resolved_plan.persist_repo_context,
-                        guard_decision=resolved_plan.guard,
-                    )
-                    for evt in gh_orch.run_stream(
-                        prompt=last_prompt,
-                        history=trimmed_history,
-                        explicit_repo=github_repo,
-                    ):
+
+                def _gh_worker() -> None:
+                    try:
+                        with session_factory() as gh_db:
+                            user_rec = (
+                                gh_db.query(UserRecord).filter(UserRecord.id == user_id).first()
+                                if user_id
+                                else None
+                            )
+                            gh_orch = GitHubChatOrchestrator(
+                                db=gh_db,
+                                user=user_rec,
+                                conversation_id=conversation_id,
+                                llm_client=client,
+                                base_system_prompt=system_prompt,
+                                chat_mode=resolved_plan.mode,
+                                allowed_tools=resolved_plan.allowed_tools,
+                                persist_repo_context=resolved_plan.persist_repo_context,
+                                guard_decision=resolved_plan.guard,
+                            )
+                            for evt in gh_orch.run_stream(
+                                prompt=last_prompt,
+                                history=trimmed_history,
+                                explicit_repo=github_repo,
+                            ):
+                                if stop_event.is_set():
+                                    break
+                                loop.call_soon_threadsafe(evt_queue.put_nowait, ("evt", evt))
+                    except Exception as worker_exc:
+                        loop.call_soon_threadsafe(evt_queue.put_nowait, ("err", worker_exc))
+                    finally:
+                        loop.call_soon_threadsafe(evt_queue.put_nowait, ("end", None))
+
+                worker_thread = threading.Thread(
+                    target=_gh_worker,
+                    name=f"gh-orch-{trace_id}",
+                    daemon=True,
+                )
+                worker_thread.start()
+
+                heartbeat_interval = 4.0
+                gh_overall_deadline = time.perf_counter() + max(
+                    120.0, settings.llm_timeout_seconds + 60.0
+                )
+                pending_evt_task: asyncio.Task[tuple[str, Any]] | None = None
+                try:
+                    while True:
                         if not _is_active_stream(conversation_id, trace_id):
                             termination_reason = "cancelled"
+                            stop_event.set()
                             break
                         if request is not None and await request.is_disconnected():
                             termination_reason = "disconnected"
+                            stop_event.set()
                             break
+                        now = time.perf_counter()
+                        if now > gh_overall_deadline:
+                            stop_event.set()
+                            raise TimeoutError(
+                                f"GitHub repository stream exceeded overall deadline for {effective_model}"
+                            )
+                        if pending_evt_task is None:
+                            pending_evt_task = asyncio.create_task(evt_queue.get())
+                        wait_slice = min(
+                            heartbeat_interval, max(0.1, gh_overall_deadline - now)
+                        )
+                        done, _ = await asyncio.wait({pending_evt_task}, timeout=wait_slice)
+                        if not done:
+                            yield ": keep-alive\n\n"
+                            continue
 
+                        item_kind, item_payload = pending_evt_task.result()
+                        pending_evt_task = None
+                        if item_kind == "end":
+                            break
+                        if item_kind == "err":
+                            raise item_payload
+
+                        evt = item_payload
                         evt_type = evt.get("type")
                         if evt_type == "status":
                             yield (
@@ -2312,7 +2365,15 @@ def _create_streaming_response(
                             chunks.append(chunk)
                             token_count += 1
                             yield f"event: token\ndata: {json.dumps({'chunk': chunk})}\n\n"
-                            await asyncio.sleep(0)
+                finally:
+                    stop_event.set()
+                    if pending_evt_task is not None and not pending_evt_task.done():
+                        pending_evt_task.cancel()
+                        try:
+                            await pending_evt_task
+                        except (asyncio.CancelledError, Exception):
+                            pass
+                    worker_thread.join(timeout=1.0)
             else:
                 yield f"event: status\ndata: {json.dumps(resolved_plan.initial_status)}\n\n"
                 chat_payload = [{"role": "system", "content": system_prompt}] + trimmed_history

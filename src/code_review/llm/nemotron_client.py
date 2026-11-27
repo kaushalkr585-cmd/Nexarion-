@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import random
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -30,6 +31,34 @@ FALLBACK_NVIDIA_MODELS: tuple[str, ...] = (
     "nvidia/nemotron-3.5-lightning-30b-a3b",
     "nvidia/nemotron-3.5-bolt-e4b",
 )
+
+_MODEL_COOLDOWN_SECONDS = 300.0
+_MODEL_COOLDOWN_LOCK = threading.Lock()
+_UNHEALTHY_MODELS_UNTIL: dict[str, float] = {}
+
+
+def _mark_model_unhealthy(model_name: str, cooldown: float = _MODEL_COOLDOWN_SECONDS) -> None:
+    if not model_name:
+        return
+    with _MODEL_COOLDOWN_LOCK:
+        _UNHEALTHY_MODELS_UNTIL[model_name] = time.monotonic() + cooldown
+
+
+def _is_model_in_cooldown(model_name: str) -> bool:
+    now = time.monotonic()
+    with _MODEL_COOLDOWN_LOCK:
+        until = _UNHEALTHY_MODELS_UNTIL.get(model_name)
+        if until is None:
+            return False
+        if now >= until:
+            _UNHEALTHY_MODELS_UNTIL.pop(model_name, None)
+            return False
+        return True
+
+
+def reset_model_cooldowns() -> None:
+    with _MODEL_COOLDOWN_LOCK:
+        _UNHEALTHY_MODELS_UNTIL.clear()
 
 _NON_CHAT_MODEL_KEYWORDS = (
     "embed",
@@ -102,11 +131,13 @@ class NemotronClient:
             raise NemotronConnectionError("NVIDIA_API_KEY is not configured or empty.")
 
     def _candidate_models(self) -> list[str]:
-        candidates = [self.model]
+        ordered = [self.model]
         for fb in FALLBACK_NVIDIA_MODELS:
-            if fb not in candidates:
-                candidates.append(fb)
-        return candidates
+            if fb not in ordered:
+                ordered.append(fb)
+        healthy = [m for m in ordered if not _is_model_in_cooldown(m)]
+        cooled = [m for m in ordered if _is_model_in_cooldown(m)]
+        return healthy + cooled
 
     @staticmethod
     def _is_thinking_capable(model_name: str) -> bool:
@@ -309,6 +340,7 @@ class NemotronClient:
                             continue
                         if _is_model_fallback_status(resp.status_code) and idx + 1 < len(candidates):
                             retries += 1
+                            _mark_model_unhealthy(candidate_model)
                             last_exc = NemotronResponseError(
                                 f"NVIDIA HTTP {resp.status_code}: {resp.reason_phrase} - {err_body}"
                             )
@@ -341,6 +373,7 @@ class NemotronClient:
                     )
                     if idx + 1 < len(candidates):
                         retries += 1
+                        _mark_model_unhealthy(candidate_model)
                         logger.warning(
                             "Model %s timed out after %.1fs; falling back to next candidate.",
                             candidate_model,
@@ -460,7 +493,7 @@ class NemotronClient:
                     },
                     timeout=httpx.Timeout(
                         connect=5.0,
-                        read=ttft_cap,
+                        read=max(ttft_cap, 25.0),
                         write=10.0,
                         pool=5.0,
                     ),
@@ -473,6 +506,7 @@ class NemotronClient:
                             )
                         if _is_model_fallback_status(resp.status_code) and idx + 1 < len(candidates):
                             retries += 1
+                            _mark_model_unhealthy(candidate_model)
                             last_exc = NemotronResponseError(
                                 f"NVIDIA HTTP {resp.status_code}: {resp.reason_phrase} - {err_body}"
                             )
@@ -491,7 +525,12 @@ class NemotronClient:
                         "fallback_used": is_fallback,
                         "effective_model": candidate_model,
                     }
+                    stream_start = time.monotonic()
                     for line_str in resp.iter_lines():
+                        if not emitted_any and (time.monotonic() - stream_start) > ttft_cap:
+                            raise httpx.ReadTimeout(
+                                f"Model {candidate_model} produced no content within {ttft_cap:.1f}s TTFT budget"
+                            )
                         clean = line_str.strip()
                         if not clean or clean.startswith(":"):
                             continue
@@ -521,6 +560,7 @@ class NemotronClient:
                 )
                 if not emitted_any and idx + 1 < len(candidates):
                     retries += 1
+                    _mark_model_unhealthy(candidate_model)
                     logger.warning(
                         "Streaming model %s timed out before first token (%.1fs); falling back.",
                         candidate_model,
@@ -534,6 +574,7 @@ class NemotronClient:
                 )
                 if not emitted_any and idx + 1 < len(candidates):
                     retries += 1
+                    _mark_model_unhealthy(candidate_model)
                     continue
                 raise last_exc from exc
 
@@ -609,6 +650,7 @@ class NemotronClient:
                                 continue
                             if _is_model_fallback_status(resp.status_code) and idx + 1 < len(candidates):
                                 retries += 1
+                                _mark_model_unhealthy(candidate_model)
                                 last_exc = NemotronResponseError(
                                     f"NVIDIA HTTP {resp.status_code}: {resp.reason_phrase} - {err_body}"
                                 )
@@ -629,8 +671,17 @@ class NemotronClient:
                         }
 
                         line_iter = resp.aiter_lines().__aiter__()
+                        stream_start = time.monotonic()
                         while True:
-                            step_timeout = active_ttft if not emitted_any else idle_timeout
+                            if not emitted_any:
+                                remaining_ttft = active_ttft - (time.monotonic() - stream_start)
+                                if remaining_ttft <= 0:
+                                    raise httpx.ReadTimeout(
+                                        f"Model {candidate_model} produced no content within {active_ttft:.1f}s TTFT budget"
+                                    )
+                                step_timeout = min(active_ttft, remaining_ttft)
+                            else:
+                                step_timeout = idle_timeout
                             try:
                                 line_str = await asyncio.wait_for(
                                     line_iter.__anext__(), timeout=step_timeout
@@ -672,6 +723,7 @@ class NemotronClient:
                     if not emitted_any:
                         if idx + 1 < len(candidates):
                             retries += 1
+                            _mark_model_unhealthy(candidate_model)
                             logger.warning(
                                 "Async model %s stalled/timed out at %.1fs before first token; falling back to next candidate.",
                                 candidate_model,
@@ -692,6 +744,7 @@ class NemotronClient:
                         continue
                     if not emitted_any and idx + 1 < len(candidates):
                         retries += 1
+                        _mark_model_unhealthy(candidate_model)
                         break
                     raise last_exc from exc
 
@@ -837,6 +890,7 @@ class NemotronClient:
                     return self._fallback_prompt_tool_call(messages, tools, temperature=temperature)
                 if resp.status_code >= 400:
                     if _is_model_fallback_status(resp.status_code) and idx + 1 < len(candidates):
+                        _mark_model_unhealthy(candidate_model)
                         last_exc = NemotronResponseError(
                             f"NVIDIA HTTP {resp.status_code}: {resp.reason_phrase} - {resp.text}"
                         )
@@ -855,6 +909,7 @@ class NemotronClient:
                     f"Request to NVIDIA NIM timed out after {model_timeout}s"
                 )
                 if idx + 1 < len(candidates):
+                    _mark_model_unhealthy(candidate_model)
                     continue
                 raise last_exc from exc
             except httpx.ConnectError as exc:

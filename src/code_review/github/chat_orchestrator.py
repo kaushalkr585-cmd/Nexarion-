@@ -27,10 +27,26 @@ from code_review.github.mode_router import (
     ProgressMessageManager,
     UserIntent,
     extract_explicit_repo_slug,
-    looks_like_casual_chitchat,
 )
 from code_review.github.service import GitHubApiError, GitHubAuthError, GitHubService
 from code_review.github.tools import GITHUB_TOOL_DEFINITIONS, GitHubToolRegistry
+from code_review.llm.client import OllamaClient
+from code_review.llm.nemotron_client import NemotronClient
+
+
+def _stream_with_thinking_pref(
+    llm_client: Any,
+    payload: list[dict[str, str]],
+    *,
+    enable_thinking: bool = False,
+) -> Iterator[str]:
+    if hasattr(llm_client, "stream_chat"):
+        if isinstance(llm_client, (NemotronClient, OllamaClient)):
+            return llm_client.stream_chat(payload, enable_thinking=enable_thinking)
+        return llm_client.stream_chat(payload)
+    if isinstance(llm_client, (NemotronClient, OllamaClient)):
+        return iter([llm_client.chat(payload, json_format=False, enable_thinking=enable_thinking)])
+    return iter([llm_client.chat(payload, json_format=False)])
 
 logger = logging.getLogger(__name__)
 
@@ -481,10 +497,8 @@ def _synthesize_raw_tool_output(
         {"role": "system", "content": SYNTHESIS_SYSTEM_PROMPT},
         {"role": "user", "content": synthesis_prompt},
     ]
-    stream_iter = (
-        llm_client.stream_chat(payload)
-        if hasattr(llm_client, "stream_chat")
-        else iter([llm_client.chat(payload, json_format=False)])
+    stream_iter = _stream_with_thinking_pref(
+        llm_client, payload, enable_thinking=False
     )
     stream_state: dict[str, bool] = {}
     for chunk in _filter_stream_tool_leakage(stream_iter, stream_state):
@@ -704,10 +718,8 @@ class GitHubChatOrchestrator:
                 **ProgressMessageManager.initial_normal_status(guard.intent),
             }
             chat_payload = [{"role": "system", "content": self.base_system_prompt}] + history[-8:]
-            stream_iter = (
-                self.llm_client.stream_chat(chat_payload)
-                if hasattr(self.llm_client, "stream_chat")
-                else iter([self.llm_client.chat(chat_payload, json_format=False)])
+            stream_iter = _stream_with_thinking_pref(
+                self.llm_client, chat_payload, enable_thinking=False
             )
             for chunk in stream_iter:
                 if chunk:
@@ -813,7 +825,7 @@ class GitHubChatOrchestrator:
                         default_branch=active_branch,
                         selected_branch=active_branch,
                     )
-            except (GitHubAuthError, httpx.HTTPStatusError) as auth_err:
+            except (GitHubAuthError, httpx.HTTPStatusError):
                 mark_connection_revoked_or_expired(self.db, self.user, "revoked")
                 yield {
                     "type": "token",
@@ -844,7 +856,7 @@ class GitHubChatOrchestrator:
             }
             try:
                 repos = gh_service.list_repositories(limit=50)
-            except (GitHubAuthError, httpx.HTTPStatusError) as auth_err:
+            except (GitHubAuthError, httpx.HTTPStatusError):
                 mark_connection_revoked_or_expired(self.db, self.user, "revoked")
                 yield {
                     "type": "token",
@@ -1257,10 +1269,8 @@ class GitHubChatOrchestrator:
             {"role": "user", "content": synth_user_msg},
         ]
 
-        stream_iter = (
-            self.llm_client.stream_chat(synth_payload)
-            if hasattr(self.llm_client, "stream_chat")
-            else iter([self.llm_client.chat(synth_payload, json_format=False)])
+        stream_iter = _stream_with_thinking_pref(
+            self.llm_client, synth_payload, enable_thinking=False
         )
         stream_state: dict[str, bool] = {}
         for chunk in _filter_stream_tool_leakage(stream_iter, stream_state):
@@ -1458,10 +1468,8 @@ class GitHubChatOrchestrator:
             {"role": "user", "content": synthesis_prompt},
         ]
 
-        stream_iter = (
-            self.llm_client.stream_chat(payload)
-            if hasattr(self.llm_client, "stream_chat")
-            else iter([self.llm_client.chat(payload, json_format=False)])
+        stream_iter = _stream_with_thinking_pref(
+            self.llm_client, payload, enable_thinking=False
         )
         stream_state: dict[str, bool] = {}
         for chunk in _filter_stream_tool_leakage(stream_iter, stream_state):
