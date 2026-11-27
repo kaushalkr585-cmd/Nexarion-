@@ -195,7 +195,17 @@ def _verify_deletion_reauth(
                 detail="GitHub is not connected to this account.",
             )
         try:
-            profile = GitHubService().get_user_profile(pat)
+            from code_review.github.access_guard import GitHubAccessGuard
+
+            auth_grant = GitHubAccessGuard.authorize_auth_flow(
+                user=user,
+                operation="get_user_profile",
+                reason="Verify user-entered GitHub PAT during account deletion reauth.",
+                db=db,
+            )
+            profile = GitHubService(
+                access_grant=auth_grant, bound_user=user, db=db
+            ).get_user_profile(pat)
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

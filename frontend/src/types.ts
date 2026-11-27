@@ -112,9 +112,12 @@ export interface Message {
   created_at: string;
 }
 
+export type ChatMode = "normal" | "github";
+
 export interface Conversation {
   id: string;
   title: string;
+  mode?: ChatMode;
   is_pinned?: boolean;
   is_archived?: boolean;
   is_shared?: boolean;

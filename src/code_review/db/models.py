@@ -186,6 +186,9 @@ class ConversationRecord(Base):
     section_name: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
     is_shared: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    mode: Mapped[str] = mapped_column(
+        String(20), default="normal", server_default="normal", nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now, index=True
@@ -492,3 +495,24 @@ class FeedbackRecord(Base):
     user: Mapped[UserRecord] = relationship("UserRecord")
     conversation: Mapped[ConversationRecord | None] = relationship("ConversationRecord")
     message: Mapped[MessageRecord | None] = relationship("MessageRecord")
+
+
+class GitHubAccessAuditRecord(Base):
+    __tablename__ = "github_access_audit_logs"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    user_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
+    conversation_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
+    chat_mode: Mapped[str] = mapped_column(String(20), default="normal", nullable=False)
+    intent: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    operation: Mapped[str] = mapped_column(String(80), index=True, nullable=False)
+    repository: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    decision: Mapped[str] = mapped_column(
+        String(16), index=True, nullable=False
+    )  # "ALLOW" | "DENY"
+    reason: Mapped[str] = mapped_column(String(500), default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, index=True
+    )

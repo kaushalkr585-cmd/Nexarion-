@@ -156,6 +156,12 @@ def init_database(max_retries: int = 3, retry_delay: float = 2.0) -> None:
                 conn.execute(
                     text("ALTER TABLE conversations ADD COLUMN is_shared BOOLEAN DEFAULT FALSE")
                 )
+            if "mode" not in columns:
+                conn.execute(
+                    text(
+                        "ALTER TABLE conversations ADD COLUMN mode VARCHAR(20) NOT NULL DEFAULT 'normal'"
+                    )
+                )
 
         if conn.dialect.name == "postgresql":
             if "conversation_memories" in table_names:
@@ -261,6 +267,19 @@ def init_database(max_retries: int = 3, retry_delay: float = 2.0) -> None:
                 text(
                     "CREATE INDEX IF NOT EXISTS idx_feedback_email_status "
                     "ON feedback_reports (email_notification_status)"
+                )
+            )
+        if "github_access_audit_logs" in table_names:
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_gh_audit_user_created "
+                    "ON github_access_audit_logs (user_id, created_at DESC)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_gh_audit_conv_decision "
+                    "ON github_access_audit_logs (conversation_id, decision)"
                 )
             )
     logger.info("Database schema initialized successfully.")

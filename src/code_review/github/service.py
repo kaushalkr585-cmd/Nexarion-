@@ -117,6 +117,16 @@ class GitHubAuthError(GitHubApiError):
         super().__init__(message, status_code=401, error_code=error_code)
 
 
+class GitHubAccessDeniedError(GitHubAuthError):
+    def __init__(
+        self,
+        message: str = "GitHub repository access is denied without explicit authorization.",
+        error_code: str = "GITHUB_ACCESS_DENIED",
+    ):
+        super().__init__(message, error_code=error_code)
+        self.status_code = 403
+
+
 class GitHubRateLimitError(GitHubApiError):
     def __init__(self, message: str = "GitHub API rate limit exceeded. Please try again shortly."):
         super().__init__(message, status_code=429, error_code="GITHUB_RATE_LIMIT")
@@ -159,9 +169,20 @@ def is_sensitive_repo_path(path: str) -> bool:
 
 
 class GitHubService:
-    def __init__(self, token: str | None = None, *, cache_scope: str | None = None) -> None:
+    def __init__(
+        self,
+        token: str | None = None,
+        *,
+        cache_scope: str | None = None,
+        access_grant: Any | None = None,
+        bound_user: Any | None = None,
+        db: Any | None = None,
+    ) -> None:
         self.settings = get_settings()
         self.token = token or self.settings.github_token or None
+        self._access_grant = access_grant
+        self._bound_user = bound_user
+        self._db = db
         if cache_scope:
             self.cache_scope = cache_scope
         elif self.token:
@@ -169,6 +190,23 @@ class GitHubService:
         else:
             self.cache_scope = "public"
         self._cache = get_github_cache()
+
+    def _authorize_operation(
+        self,
+        operation: str,
+        *,
+        owner: str | None = None,
+        repo: str | None = None,
+    ) -> None:
+        from code_review.github.access_guard import GitHubAccessGuard
+
+        GitHubAccessGuard.enforce_service_call(
+            self,
+            operation,
+            owner=owner,
+            repo=repo,
+            db=self._db,
+        )
 
     def get_auth_headers(self, custom_token: str | None = None) -> dict[str, str]:
         active_token = custom_token or self.token
@@ -288,6 +326,7 @@ class GitHubService:
         return f"https://github.com/apps/{urllib.parse.quote(slug)}/installations/new?{params}"
 
     def get_installation_details(self, installation_id: str | int) -> dict[str, Any]:
+        self._authorize_operation("get_installation_details")
         app_jwt = self.create_app_jwt()
         headers = self.get_auth_headers(app_jwt)
         return self._get_json(
@@ -297,6 +336,7 @@ class GitHubService:
         )
 
     def create_installation_access_token(self, installation_id: str | int) -> dict[str, Any]:
+        self._authorize_operation("create_installation_access_token")
         app_jwt = self.create_app_jwt()
         headers = self.get_auth_headers(app_jwt)
         url = f"{GITHUB_API_BASE}/app/installations/{installation_id}/access_tokens"
@@ -316,6 +356,7 @@ class GitHubService:
     def list_installation_repositories(
         self, token: str | None = None, limit: int = 100
     ) -> list[dict[str, Any]]:
+        self._authorize_operation("list_installation_repositories")
         headers = self.get_auth_headers(token)
         repos: list[dict[str, Any]] = []
         page = 1
@@ -389,6 +430,7 @@ class GitHubService:
         return f"https://github.com/login/oauth/authorize?{urllib.parse.urlencode(params)}"
 
     def exchange_code(self, code: str) -> str:
+        self._authorize_operation("exchange_code")
         url = "https://github.com/login/oauth/access_token"
         payload = {
             "client_id": self.settings.github_client_id,
@@ -411,6 +453,7 @@ class GitHubService:
             return str(token)
 
     def get_user_profile(self, token: str | None = None) -> dict[str, Any]:
+        self._authorize_operation("get_user_profile")
         headers = self.get_auth_headers(token)
         with httpx.Client(timeout=15.0) as client:
             resp = client.get(f"{GITHUB_API_BASE}/user", headers=headers)
@@ -420,6 +463,7 @@ class GitHubService:
     def list_repositories(
         self, token: str | None = None, *, limit: int = 100
     ) -> list[dict[str, Any]]:
+        self._authorize_operation("list_repositories")
         active_token = token or self.token
         cache_key = self._cache.build_key(self.cache_scope, "list_repos", extra={"limit": limit})
         if not token:
@@ -465,6 +509,7 @@ class GitHubService:
     def list_pull_requests(
         self, owner: str, repo: str, token: str | None = None
     ) -> list[dict[str, Any]]:
+        self._authorize_operation("list_pull_requests", owner=owner, repo=repo)
         headers = self.get_auth_headers(token)
         with httpx.Client(timeout=20.0) as client:
             resp = client.get(
@@ -503,6 +548,7 @@ class GitHubService:
     def get_pull_request_diff(
         self, owner: str, repo: str, pull_number: int, token: str | None = None
     ) -> dict[str, Any]:
+        self._authorize_operation("get_pull_request_diff", owner=owner, repo=repo)
         headers = self.get_auth_headers(token)
 
         with httpx.Client(timeout=25.0) as client:
@@ -730,6 +776,7 @@ class GitHubService:
         commit_sha: str | None = None,
         token: str | None = None,
     ) -> dict[str, Any]:
+        self._authorize_operation("post_pull_request_review", owner=owner, repo=repo)
         headers = self.get_auth_headers(token)
         url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/{pull_number}/reviews"
 
@@ -781,6 +828,7 @@ class GitHubService:
         target_url: str | None = None,
         token: str | None = None,
     ) -> dict[str, Any]:
+        self._authorize_operation("create_commit_status", owner=owner, repo=repo)
         headers = self.get_auth_headers(token)
         url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/statuses/{sha}"
         payload: dict[str, Any] = {
@@ -810,6 +858,7 @@ class GitHubService:
         annotations: list[dict[str, Any]] | None = None,
         token: str | None = None,
     ) -> dict[str, Any]:
+        self._authorize_operation("create_check_run", owner=owner, repo=repo)
         headers = self.get_auth_headers(token)
         url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/check-runs"
         payload: dict[str, Any] = {
@@ -843,6 +892,7 @@ class GitHubService:
     def search_repositories(
         self, query: str, *, include_public: bool = False, limit: int = 20
     ) -> list[dict[str, Any]]:
+        self._authorize_operation("search_repositories")
         q = (query or "").strip()
         matches: list[dict[str, Any]] = []
         seen_full: set[str] = set()
@@ -886,6 +936,7 @@ class GitHubService:
         return matches[:limit]
 
     def get_repository_details(self, owner: str, repo: str) -> dict[str, Any]:
+        self._authorize_operation("get_repository_details", owner=owner, repo=repo)
         repo_slug = f"{owner}/{repo}"
         cache_key = self._cache.build_key(self.cache_scope, "repo_details", repo=repo_slug)
         cached = self._cache.get(cache_key)
@@ -911,6 +962,7 @@ class GitHubService:
     def get_repository_branches(
         self, owner: str, repo: str, *, limit: int = 30
     ) -> list[dict[str, Any]]:
+        self._authorize_operation("get_repository_branches", owner=owner, repo=repo)
         repo_slug = f"{owner}/{repo}"
         cache_key = self._cache.build_key(
             self.cache_scope, "repo_branches", repo=repo_slug, extra={"limit": limit}
@@ -944,6 +996,7 @@ class GitHubService:
         recursive: bool = True,
         max_entries: int = 500,
     ) -> dict[str, Any]:
+        self._authorize_operation("get_repository_tree", owner=owner, repo=repo)
         repo_slug = f"{owner}/{repo}"
         target_ref = ref
         if not target_ref:
@@ -1011,6 +1064,7 @@ class GitHubService:
     def get_repository_contents(
         self, owner: str, repo: str, path: str = "", ref: str | None = None
     ) -> list[dict[str, Any]] | dict[str, Any]:
+        self._authorize_operation("get_repository_contents", owner=owner, repo=repo)
         repo_slug = f"{owner}/{repo}"
         clean_path = path.strip("/")
         if clean_path and is_sensitive_repo_path(clean_path):
@@ -1073,6 +1127,7 @@ class GitHubService:
         *,
         max_bytes: int = MAX_FILE_BYTES,
     ) -> dict[str, Any]:
+        self._authorize_operation("fetch_file", owner=owner, repo=repo)
         clean_path = (path or "").replace("\\", "/").strip().strip("/")
         if not clean_path or clean_path in (".", ".."):
             raise GitHubApiError(
@@ -1182,6 +1237,7 @@ class GitHubService:
     def search_repository_code(
         self, owner: str, repo: str, query: str, *, limit: int = 15
     ) -> list[dict[str, Any]]:
+        self._authorize_operation("search_repository_code", owner=owner, repo=repo)
         clean_q = (query or "").strip()
         if not clean_q:
             return []
@@ -1245,6 +1301,7 @@ class GitHubService:
     def get_commit_history(
         self, owner: str, repo: str, branch: str | None = None, *, limit: int = 15
     ) -> list[dict[str, Any]]:
+        self._authorize_operation("get_commit_history", owner=owner, repo=repo)
         repo_slug = f"{owner}/{repo}"
         cache_key = self._cache.build_key(
             self.cache_scope,
@@ -1281,6 +1338,7 @@ class GitHubService:
         return commits
 
     def get_commit_details(self, owner: str, repo: str, sha: str) -> dict[str, Any]:
+        self._authorize_operation("get_commit_details", owner=owner, repo=repo)
         repo_slug = f"{owner}/{repo}"
         cache_key = self._cache.build_key(
             self.cache_scope, "commit_detail", repo=repo_slug, ref=sha
@@ -1318,6 +1376,7 @@ class GitHubService:
         return result
 
     def compare_commits(self, owner: str, repo: str, base: str, head: str) -> dict[str, Any]:
+        self._authorize_operation("compare_commits", owner=owner, repo=repo)
         repo_slug = f"{owner}/{repo}"
         spec = f"{urllib.parse.quote(base, safe='')}...{urllib.parse.quote(head, safe='')}"
         cache_key = self._cache.build_key(
@@ -1362,6 +1421,7 @@ class GitHubService:
         return result
 
     def get_pull_request_details(self, owner: str, repo: str, pull_number: int) -> dict[str, Any]:
+        self._authorize_operation("get_pull_request_details", owner=owner, repo=repo)
         data = self._get_json(
             f"{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/{pull_number}",
             context_msg=f"{owner}/{repo}#{pull_number}",
@@ -1386,6 +1446,7 @@ class GitHubService:
     def get_pull_request_files(
         self, owner: str, repo: str, pull_number: int
     ) -> list[dict[str, Any]]:
+        self._authorize_operation("get_pull_request_files", owner=owner, repo=repo)
         data = self._get_json(
             f"{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/{pull_number}/files",
             params={"per_page": 50},
@@ -1407,6 +1468,7 @@ class GitHubService:
     def get_pull_request_reviews(
         self, owner: str, repo: str, pull_number: int
     ) -> list[dict[str, Any]]:
+        self._authorize_operation("get_pull_request_reviews", owner=owner, repo=repo)
         data = self._get_json(
             f"{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
             context_msg=f"{owner}/{repo}#{pull_number} reviews",
@@ -1425,6 +1487,7 @@ class GitHubService:
     def get_pull_request_comments(
         self, owner: str, repo: str, pull_number: int
     ) -> list[dict[str, Any]]:
+        self._authorize_operation("get_pull_request_comments", owner=owner, repo=repo)
         data = self._get_json(
             f"{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/{pull_number}/comments",
             params={"per_page": 40},
@@ -1445,6 +1508,7 @@ class GitHubService:
     def get_repository_issues(
         self, owner: str, repo: str, *, state: str = "open", limit: int = 20
     ) -> list[dict[str, Any]]:
+        self._authorize_operation("get_repository_issues", owner=owner, repo=repo)
         data = self._get_json(
             f"{GITHUB_API_BASE}/repos/{owner}/{repo}/issues",
             params={"state": state, "per_page": min(50, max(1, limit))},
@@ -1474,6 +1538,7 @@ class GitHubService:
     def search_issues(
         self, owner: str, repo: str, query: str, *, limit: int = 15
     ) -> list[dict[str, Any]]:
+        self._authorize_operation("search_issues", owner=owner, repo=repo)
         clean_q = (query or "").strip()
         if not clean_q:
             return self.get_repository_issues(owner, repo, limit=limit)
@@ -1495,6 +1560,7 @@ class GitHubService:
         ]
 
     def get_issue_details(self, owner: str, repo: str, issue_number: int) -> dict[str, Any]:
+        self._authorize_operation("get_issue_details", owner=owner, repo=repo)
         issue = self._get_json(
             f"{GITHUB_API_BASE}/repos/{owner}/{repo}/issues/{issue_number}",
             context_msg=f"{owner}/{repo} issue #{issue_number}",
@@ -1523,6 +1589,7 @@ class GitHubService:
         }
 
     def get_workflow_runs(self, owner: str, repo: str, *, limit: int = 10) -> list[dict[str, Any]]:
+        self._authorize_operation("get_workflow_runs", owner=owner, repo=repo)
         data = self._get_json(
             f"{GITHUB_API_BASE}/repos/{owner}/{repo}/actions/runs",
             params={"per_page": min(30, max(1, limit))},
@@ -1545,6 +1612,7 @@ class GitHubService:
         ]
 
     def get_check_runs(self, owner: str, repo: str, ref: str) -> list[dict[str, Any]]:
+        self._authorize_operation("get_check_runs", owner=owner, repo=repo)
         data = self._get_json(
             f"{GITHUB_API_BASE}/repos/{owner}/{repo}/commits/{urllib.parse.quote(ref, safe='')}/check-runs",
             params={"per_page": 30},

@@ -1,9 +1,22 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+
+ChatMode = Literal["normal", "github"]
+
+
+def _validate_optional_chat_mode(value: Any) -> ChatMode | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("Invalid chat mode: must be 'normal' or 'github'.")
+    cleaned = value.strip().lower()
+    if cleaned not in ("normal", "github"):
+        raise ValueError("Invalid chat mode: must be 'normal' or 'github'.")
+    return cleaned  # type: ignore[return-value]
 
 
 class SignupRequest(BaseModel):
@@ -241,10 +254,16 @@ class MessageCreateRequest(BaseModel):
     model: str | None = None
     diff_context: str | None = None
     attachment_ids: list[str] = Field(default_factory=list)
-    github_mode: bool = False
+    mode: ChatMode | None = None
+    github_mode: bool | None = None
     github_repo: str | None = None
     selected_text: str | None = Field(default=None, max_length=4000)
     selected_message_id: str | None = Field(default=None, max_length=100)
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def validate_mode(cls, v: Any) -> ChatMode | None:
+        return _validate_optional_chat_mode(v)
 
 
 class MessageResponse(BaseModel):
@@ -270,8 +289,14 @@ class MessageRegenerateRequest(BaseModel):
     provider: str | None = None
     model: str | None = None
     diff_context: str | None = None
-    github_mode: bool = False
+    mode: ChatMode | None = None
+    github_mode: bool | None = None
     github_repo: str | None = None
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def validate_mode(cls, v: Any) -> ChatMode | None:
+        return _validate_optional_chat_mode(v)
 
 
 class MessageEditRequest(BaseModel):
@@ -280,10 +305,16 @@ class MessageEditRequest(BaseModel):
     model: str | None = None
     diff_context: str | None = None
     attachment_ids: list[str] = Field(default_factory=list)
-    github_mode: bool = False
+    mode: ChatMode | None = None
+    github_mode: bool | None = None
     github_repo: str | None = None
     selected_text: str | None = Field(default=None, max_length=4000)
     selected_message_id: str | None = Field(default=None, max_length=100)
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def validate_mode(cls, v: Any) -> ChatMode | None:
+        return _validate_optional_chat_mode(v)
 
 
 class AttachmentContentResponse(BaseModel):
@@ -303,8 +334,14 @@ class ConversationCreateRequest(BaseModel):
     provider: str | None = None
     model: str | None = None
     attachment_ids: list[str] = Field(default_factory=list)
-    github_mode: bool = False
+    mode: ChatMode | None = None
+    github_mode: bool | None = None
     github_repo: str | None = None
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def validate_mode(cls, v: Any) -> ChatMode | None:
+        return _validate_optional_chat_mode(v)
 
 
 class ConversationResponse(BaseModel):
@@ -315,6 +352,7 @@ class ConversationResponse(BaseModel):
     is_pinned: bool = False
     is_archived: bool = False
     is_shared: bool = False
+    mode: ChatMode = "normal"
     section_name: str | None = None
     created_at: datetime
     updated_at: datetime
@@ -329,6 +367,7 @@ class ConversationDetailResponse(BaseModel):
     is_pinned: bool = False
     is_archived: bool = False
     is_shared: bool = False
+    mode: ChatMode = "normal"
     section_name: str | None = None
     created_at: datetime
     updated_at: datetime
@@ -341,7 +380,13 @@ class ConversationUpdateRequest(BaseModel):
     is_pinned: bool | None = None
     is_archived: bool | None = None
     is_shared: bool | None = None
+    mode: ChatMode | None = None
     section_name: str | None = Field(default=None, max_length=100)
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def validate_mode(cls, v: Any) -> ChatMode | None:
+        return _validate_optional_chat_mode(v)
 
 
 class ConversationSearchResult(BaseModel):

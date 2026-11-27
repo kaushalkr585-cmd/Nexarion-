@@ -33,12 +33,14 @@ from code_review.db.models import (
     MessageRecord,
     UserRecord,
 )
-from code_review.github.auth_resolver import resolve_user_github_context
-from code_review.github.chat_orchestrator import (
-    GITHUB_URL_RE,
-    GitHubChatOrchestrator,
-    _extract_explicit_repo_slug,
-    looks_like_casual_chitchat,
+from code_review.github.auth_resolver import ensure_github_tables
+from code_review.github.chat_orchestrator import GitHubChatOrchestrator
+from code_review.github.mode_router import (
+    ChatModeResolver,
+    ProgressMessageManager,
+    ToolExecutionRouter,
+    ToolRoutePlan,
+    UserIntent,
 )
 from code_review.llm.factory import get_llm_client
 from code_review.web.auth import get_current_user_optional
@@ -64,12 +66,14 @@ router = APIRouter(prefix="/conversations", tags=["Conversations"])
 
 
 def _to_detail_response(conversation: ConversationRecord) -> ConversationDetailResponse:
+    conv_mode = "github" if getattr(conversation, "mode", "normal") == "github" else "normal"
     return ConversationDetailResponse(
         id=conversation.id,
         title=conversation.title,
         is_pinned=bool(conversation.is_pinned),
         is_archived=bool(conversation.is_archived),
         is_shared=bool(conversation.is_shared),
+        mode=conv_mode,
         section_name=conversation.section_name,
         created_at=conversation.created_at,
         updated_at=conversation.updated_at,
@@ -86,6 +90,49 @@ def _to_detail_response(conversation: ConversationRecord) -> ConversationDetailR
             )
             for m in conversation.messages
         ],
+    )
+
+
+def _resolve_conversation_route_plan(
+    *,
+    db: Session,
+    user: UserRecord | None,
+    conversation: ConversationRecord | None,
+    prompt: str,
+    requested_mode: str | None,
+    legacy_github_mode: bool | None,
+    diff_context: str | None = None,
+    document_context: str | None = None,
+    explicit_repo: str | None = None,
+) -> ToolRoutePlan:
+    resolved_mode = ChatModeResolver.resolve(mode=requested_mode, github_mode=legacy_github_mode)
+
+    if conversation is not None and (requested_mode is not None or legacy_github_mode is True):
+        conversation.mode = resolved_mode
+
+    has_locked_repo = False
+    if resolved_mode == "github" and conversation is not None:
+        try:
+            ensure_github_tables()
+            has_locked_repo = (
+                db.query(ConversationRepositoryContextRecord)
+                .filter(ConversationRepositoryContextRecord.conversation_id == conversation.id)
+                .first()
+                is not None
+            )
+        except Exception:
+            has_locked_repo = False
+
+    return ToolExecutionRouter.plan_chat_request(
+        prompt=prompt,
+        requested_mode=resolved_mode,
+        legacy_github_mode=None,
+        db=db,
+        user=user,
+        diff_context=diff_context,
+        document_context=document_context,
+        explicit_repo=explicit_repo,
+        has_locked_repo=has_locked_repo,
     )
 
 
@@ -351,6 +398,8 @@ def _resolve_memory_context(
     user_id: str | None,
     current_conversation_id: str | None,
     query: str | None,
+    *,
+    include_repository_memories: bool = False,
 ) -> str | None:
     if not query or not query.strip():
         return None
@@ -365,6 +414,7 @@ def _resolve_memory_context(
             current_conversation_id=current_conversation_id,
             limit=settings.memory_top_k,
             token_budget=settings.memory_token_budget,
+            include_repository_memories=include_repository_memories,
         )
         return ConversationMemoryManager.build_memory_context_block(excerpts)
     except Exception as exc:
@@ -629,6 +679,7 @@ def list_conversations(
         ConversationRecord.is_pinned,
         ConversationRecord.is_archived,
         ConversationRecord.is_shared,
+        ConversationRecord.mode,
         ConversationRecord.section_name,
         ConversationRecord.created_at,
         ConversationRecord.updated_at,
@@ -656,6 +707,7 @@ def list_conversations(
             is_pinned=bool(row.is_pinned),
             is_archived=bool(row.is_archived),
             is_shared=bool(row.is_shared),
+            mode="github" if getattr(row, "mode", "normal") == "github" else "normal",
             section_name=row.section_name,
             created_at=row.created_at,
             updated_at=row.updated_at,
@@ -792,9 +844,11 @@ def create_conversation(
         raw = payload.initial_message.strip()
         conv_title = raw[:60] + ("..." if len(raw) > 60 else "")
 
+    initial_mode = ChatModeResolver.resolve(mode=payload.mode, github_mode=payload.github_mode)
     conversation = ConversationRecord(
         user_id=user.id if user else None,
         title=conv_title,
+        mode=initial_mode,
     )
     db.add(conversation)
     db.flush()
@@ -831,11 +885,27 @@ def create_conversation(
             diff_context_provided=bool(payload.diff_context),
         )
 
-        memory_context = _resolve_memory_context(
+        route_plan = _resolve_conversation_route_plan(
             db=db,
-            user_id=user.id if user else None,
-            current_conversation_id=conversation.id,
-            query=payload.initial_message,
+            user=user,
+            conversation=conversation,
+            prompt=payload.initial_message,
+            requested_mode=payload.mode,
+            legacy_github_mode=payload.github_mode,
+            diff_context=payload.diff_context,
+            document_context=doc_context,
+            explicit_repo=payload.github_repo,
+        )
+
+        memory_context = (
+            None
+            if route_plan.use_github_orchestrator
+            else _resolve_memory_context(
+                db=db,
+                user_id=user.id if user else None,
+                current_conversation_id=conversation.id,
+                query=payload.initial_message,
+            )
         )
 
         assistant_content = _generate_assistant_reply(
@@ -847,6 +917,9 @@ def create_conversation(
             provider_override=payload.provider,
             model_override=payload.model,
             db=db,
+            user=user,
+            route_plan=route_plan,
+            explicit_repo=payload.github_repo,
         )
         assistant_msg = MessageRecord(
             conversation_id=conversation.id,
@@ -909,6 +982,8 @@ def update_conversation(
         conversation.is_archived = bool(payload.is_archived)
     if "is_shared" in fields_set and payload.is_shared is not None:
         conversation.is_shared = bool(payload.is_shared)
+    if "mode" in fields_set and payload.mode is not None:
+        conversation.mode = payload.mode
     if "section_name" in fields_set:
         if payload.section_name is not None:
             trimmed_sec = payload.section_name.strip()
@@ -1018,11 +1093,27 @@ def send_message(
         diff_context_provided=bool(payload.diff_context),
     )
 
-    memory_context = _resolve_memory_context(
+    route_plan = _resolve_conversation_route_plan(
         db=db,
-        user_id=user.id if user else None,
-        current_conversation_id=conversation.id,
-        query=payload.content,
+        user=user,
+        conversation=conversation,
+        prompt=payload.content,
+        requested_mode=payload.mode,
+        legacy_github_mode=payload.github_mode,
+        diff_context=payload.diff_context,
+        document_context=doc_context,
+        explicit_repo=payload.github_repo,
+    )
+
+    memory_context = (
+        None
+        if route_plan.use_github_orchestrator
+        else _resolve_memory_context(
+            db=db,
+            user_id=user.id if user else None,
+            current_conversation_id=conversation.id,
+            query=payload.content,
+        )
     )
 
     history = [{"role": m.role, "content": m.content} for m in conversation.messages]
@@ -1043,6 +1134,9 @@ def send_message(
         provider_override=payload.provider,
         model_override=payload.model,
         db=db,
+        user=user,
+        route_plan=route_plan,
+        explicit_repo=payload.github_repo,
     )
 
     assistant_msg = MessageRecord(
@@ -1130,11 +1224,26 @@ def regenerate_message(
     )
 
     last_user_query = next((m["content"] for m in reversed(history) if m["role"] == "user"), "")
-    memory_context = _resolve_memory_context(
+    route_plan = _resolve_conversation_route_plan(
         db=db,
-        user_id=user.id if user else None,
-        current_conversation_id=conversation.id,
-        query=last_user_query,
+        user=user,
+        conversation=conversation,
+        prompt=last_user_query,
+        requested_mode=payload.mode,
+        legacy_github_mode=payload.github_mode,
+        diff_context=payload.diff_context,
+        document_context=doc_context,
+        explicit_repo=payload.github_repo,
+    )
+    memory_context = (
+        None
+        if route_plan.use_github_orchestrator
+        else _resolve_memory_context(
+            db=db,
+            user_id=user.id if user else None,
+            current_conversation_id=conversation.id,
+            query=last_user_query,
+        )
     )
 
     new_content = _generate_assistant_reply(
@@ -1146,6 +1255,9 @@ def regenerate_message(
         provider_override=payload.provider,
         model_override=payload.model,
         db=db,
+        user=user,
+        route_plan=route_plan,
+        explicit_repo=payload.github_repo,
     )
 
     if target_msg and target_msg.role == "assistant":
@@ -1264,14 +1376,30 @@ def edit_message(
     for sub in subsequent_messages:
         db.delete(sub)
 
+    route_plan = _resolve_conversation_route_plan(
+        db=db,
+        user=user,
+        conversation=conversation,
+        prompt=payload.content,
+        requested_mode=payload.mode,
+        legacy_github_mode=payload.github_mode,
+        diff_context=payload.diff_context,
+        document_context=doc_context,
+        explicit_repo=payload.github_repo,
+    )
+
     db.commit()
     db.refresh(conversation)
 
-    memory_context = _resolve_memory_context(
-        db=db,
-        user_id=user.id if user else None,
-        current_conversation_id=conversation.id,
-        query=payload.content,
+    memory_context = (
+        None
+        if route_plan.use_github_orchestrator
+        else _resolve_memory_context(
+            db=db,
+            user_id=user.id if user else None,
+            current_conversation_id=conversation.id,
+            query=payload.content,
+        )
     )
 
     history = [
@@ -1294,6 +1422,9 @@ def edit_message(
         provider_override=payload.provider,
         model_override=payload.model,
         db=db,
+        user=user,
+        route_plan=route_plan,
+        explicit_repo=payload.github_repo,
     )
 
     assistant_msg = MessageRecord(
@@ -1409,14 +1540,30 @@ def edit_message_stream(
     for sub in subsequent_messages:
         db.delete(sub)
 
+    route_plan = _resolve_conversation_route_plan(
+        db=db,
+        user=user,
+        conversation=conversation,
+        prompt=payload.content,
+        requested_mode=payload.mode,
+        legacy_github_mode=payload.github_mode,
+        diff_context=payload.diff_context,
+        document_context=doc_context,
+        explicit_repo=payload.github_repo,
+    )
+
     db.commit()
     db.refresh(conversation)
 
-    memory_context = _resolve_memory_context(
-        db=db,
-        user_id=user.id if user else None,
-        current_conversation_id=conversation.id,
-        query=payload.content,
+    memory_context = (
+        None
+        if route_plan.use_github_orchestrator
+        else _resolve_memory_context(
+            db=db,
+            user_id=user.id if user else None,
+            current_conversation_id=conversation.id,
+            query=payload.content,
+        )
     )
 
     history = [
@@ -1443,8 +1590,9 @@ def edit_message_stream(
         else payload.content,
         user_message_id=target_msg.id,
         user_id=user.id if user else None,
-        github_mode=payload.github_mode,
+        github_mode=route_plan.mode == "github",
         github_repo=payload.github_repo,
+        route_plan=route_plan,
     )
 
 
@@ -1495,11 +1643,27 @@ def send_message_stream(
         diff_context_provided=bool(payload.diff_context),
     )
 
-    memory_context = _resolve_memory_context(
+    route_plan = _resolve_conversation_route_plan(
         db=db,
-        user_id=user.id if user else None,
-        current_conversation_id=conversation.id,
-        query=payload.content,
+        user=user,
+        conversation=conversation,
+        prompt=payload.content,
+        requested_mode=payload.mode,
+        legacy_github_mode=payload.github_mode,
+        diff_context=payload.diff_context,
+        document_context=doc_context,
+        explicit_repo=payload.github_repo,
+    )
+
+    memory_context = (
+        None
+        if route_plan.use_github_orchestrator
+        else _resolve_memory_context(
+            db=db,
+            user_id=user.id if user else None,
+            current_conversation_id=conversation.id,
+            query=payload.content,
+        )
     )
 
     db.commit()
@@ -1527,8 +1691,9 @@ def send_message_stream(
         else payload.content,
         user_message_id=user_msg.id,
         user_id=user.id if user else None,
-        github_mode=payload.github_mode,
+        github_mode=route_plan.mode == "github",
         github_repo=payload.github_repo,
+        route_plan=route_plan,
     )
 
 
@@ -1545,14 +1710,17 @@ def create_conversation_stream(
         else (payload.title or "New Review Discussion")
     )
 
+    initial_mode = ChatModeResolver.resolve(mode=payload.mode, github_mode=payload.github_mode)
     conversation = ConversationRecord(
         user_id=user.id if user else None,
         title=conv_title,
+        mode=initial_mode,
     )
     db.add(conversation)
     db.flush()
 
     doc_context: str | None = None
+    user_msg: MessageRecord | None = None
     if payload.initial_message:
         user_msg = MessageRecord(
             conversation_id=conversation.id,
@@ -1585,14 +1753,30 @@ def create_conversation_stream(
             diff_context_provided=bool(payload.diff_context),
         )
 
+    route_plan = _resolve_conversation_route_plan(
+        db=db,
+        user=user,
+        conversation=conversation,
+        prompt=payload.initial_message or "",
+        requested_mode=payload.mode,
+        legacy_github_mode=payload.github_mode,
+        diff_context=payload.diff_context,
+        document_context=doc_context,
+        explicit_repo=payload.github_repo,
+    )
+
     db.commit()
     db.refresh(conversation)
 
-    memory_context = _resolve_memory_context(
-        db=db,
-        user_id=user.id if user else None,
-        current_conversation_id=conversation.id,
-        query=payload.initial_message,
+    memory_context = (
+        None
+        if route_plan.use_github_orchestrator
+        else _resolve_memory_context(
+            db=db,
+            user_id=user.id if user else None,
+            current_conversation_id=conversation.id,
+            query=payload.initial_message,
+        )
     )
 
     history = (
@@ -1611,10 +1795,15 @@ def create_conversation_stream(
         model=payload.model,
         trigger_prompt=payload.initial_message or "",
         user_message_id=user_msg.id if user_msg else None,
-        initial_conv_metadata={"id": conversation.id, "title": conversation.title},
+        initial_conv_metadata={
+            "id": conversation.id,
+            "title": conversation.title,
+            "mode": route_plan.mode,
+        },
         user_id=user.id if user else None,
-        github_mode=payload.github_mode,
+        github_mode=route_plan.mode == "github",
         github_repo=payload.github_repo,
+        route_plan=route_plan,
     )
 
 
@@ -1676,11 +1865,27 @@ def regenerate_message_stream(
     )
 
     last_user_query = next((m["content"] for m in reversed(history) if m["role"] == "user"), "")
-    memory_context = _resolve_memory_context(
+    route_plan = _resolve_conversation_route_plan(
         db=db,
-        user_id=user.id if user else None,
-        current_conversation_id=conversation.id,
-        query=last_user_query,
+        user=user,
+        conversation=conversation,
+        prompt=last_user_query,
+        requested_mode=payload.mode,
+        legacy_github_mode=payload.github_mode,
+        diff_context=payload.diff_context,
+        document_context=doc_context,
+        explicit_repo=payload.github_repo,
+    )
+    db.commit()
+    memory_context = (
+        None
+        if route_plan.use_github_orchestrator
+        else _resolve_memory_context(
+            db=db,
+            user_id=user.id if user else None,
+            current_conversation_id=conversation.id,
+            query=last_user_query,
+        )
     )
 
     return _create_streaming_response(
@@ -1693,8 +1898,9 @@ def regenerate_message_stream(
         model=payload.model,
         target_message_id=target_id_for_stream,
         user_id=user.id if user else None,
-        github_mode=payload.github_mode,
+        github_mode=route_plan.mode == "github",
         github_repo=payload.github_repo,
+        route_plan=route_plan,
     )
 
 
@@ -1714,6 +1920,7 @@ def _create_streaming_response(
     user_id: str | None = None,
     github_mode: bool = False,
     github_repo: str | None = None,
+    route_plan: ToolRoutePlan | None = None,
 ) -> StreamingResponse:
     def event_generator():
         trace_id = f"trace-{uuid.uuid4().hex[:8]}"
@@ -1722,13 +1929,60 @@ def _create_streaming_response(
         chunks: list[str] = []
         token_count = 0
 
+        resolved_plan = route_plan
+        last_prompt = trigger_prompt or (history[-1]["content"] if history else "")
+        if resolved_plan is None:
+            try:
+                plan_factory = get_session_factory()
+                with plan_factory() as plan_db:
+                    u_rec = (
+                        plan_db.query(UserRecord).filter(UserRecord.id == user_id).first()
+                        if user_id
+                        else None
+                    )
+                    resolved_mode = ChatModeResolver.resolve(
+                        mode=None, github_mode=True if github_mode else None
+                    )
+                    has_locked_repo = False
+                    if resolved_mode == "github":
+                        ensure_github_tables()
+                        has_locked_repo = (
+                            plan_db.query(ConversationRepositoryContextRecord)
+                            .filter(
+                                ConversationRepositoryContextRecord.conversation_id
+                                == conversation_id
+                            )
+                            .first()
+                            is not None
+                        )
+                    resolved_plan = ToolExecutionRouter.plan_chat_request(
+                        prompt=last_prompt,
+                        requested_mode=resolved_mode,
+                        legacy_github_mode=None,
+                        db=plan_db,
+                        user=u_rec,
+                        diff_context=diff_context,
+                        document_context=document_context,
+                        explicit_repo=github_repo,
+                        has_locked_repo=has_locked_repo,
+                    )
+            except Exception as plan_err:
+                logger.warning("Fallback chat route planning failed: %s", plan_err)
+                resolved_plan = ToolExecutionRouter.plan_chat_request(
+                    prompt=last_prompt,
+                    requested_mode="normal",
+                    diff_context=diff_context,
+                    document_context=document_context,
+                )
+
         if initial_conv_metadata:
             init_data = dict(initial_conv_metadata)
+            init_data.setdefault("mode", resolved_plan.mode)
             if user_message_id and "user_message_id" not in init_data:
                 init_data["user_message_id"] = user_message_id
             yield f"event: init\ndata: {json.dumps(init_data)}\n\n"
         else:
-            ack_data = {"conversation_id": conversation_id}
+            ack_data = {"conversation_id": conversation_id, "mode": resolved_plan.mode}
             if user_message_id:
                 ack_data["user_message_id"] = user_message_id
             yield f"event: ack\ndata: {json.dumps(ack_data)}\n\n"
@@ -1737,60 +1991,24 @@ def _create_streaming_response(
         active_provider = (provider or settings.llm_provider or "ollama").lower().strip()
 
         logger.info(
-            "[TRACE: %s] Starting AI stream: conv=%s, provider=%s, model=%s, github_mode=%s",
+            "[TRACE: %s] Starting AI stream: conv=%s, provider=%s, model=%s, mode=%s, intent=%s, gh_tools=%s",
             trace_id,
             conversation_id,
             active_provider,
             model or "default",
-            github_mode,
+            resolved_plan.mode,
+            resolved_plan.intent.value,
+            resolved_plan.allow_github_tools,
         )
 
         try:
             if active_provider not in ("ollama", "nvidia", "llm"):
                 raise ValueError(f"unsupported ai model provider: {active_provider}")
 
-            last_prompt = trigger_prompt or (history[-1]["content"] if history else "")
-            effective_github_mode = bool(github_mode)
-            if not effective_github_mode and not diff_context:
-                try:
-                    check_factory = get_session_factory()
-                    with check_factory() as check_db:
-                        has_locked_repo = (
-                            check_db.query(ConversationRepositoryContextRecord)
-                            .filter(
-                                ConversationRepositoryContextRecord.conversation_id
-                                == conversation_id
-                            )
-                            .first()
-                            is not None
-                        )
-                        if has_locked_repo and not looks_like_casual_chitchat(last_prompt):
-                            effective_github_mode = True
-                        elif user_id and not document_context:
-                            u_rec = (
-                                check_db.query(UserRecord).filter(UserRecord.id == user_id).first()
-                            )
-                            gh_auth = resolve_user_github_context(check_db, u_rec)
-                            if gh_auth.connected and (
-                                bool(github_repo)
-                                or bool(GITHUB_URL_RE.search(last_prompt))
-                                or bool(_extract_explicit_repo_slug(last_prompt))
-                                or bool(
-                                    re.search(
-                                        r"\b(repo|repository|repositories|github|pull request|pull requests|commits?)\b",
-                                        last_prompt,
-                                        re.IGNORECASE,
-                                    )
-                                )
-                            ):
-                                effective_github_mode = True
-                except Exception as ctx_err:
-                    logger.debug("Auto GitHub mode check skipped cleanly: %s", ctx_err)
-
             client = get_llm_client(
                 provider=active_provider,
                 model=model,
-                timeout=120.0 if effective_github_mode else 60.0,
+                timeout=120.0 if resolved_plan.use_github_orchestrator else 60.0,
             )
 
             if not client.is_available():
@@ -1800,14 +2018,14 @@ def _create_streaming_response(
             system_prompt = _build_system_prompt(
                 diff_context=diff_context,
                 document_context=document_context,
-                memory_context=None if effective_github_mode else memory_context,
+                memory_context=None if resolved_plan.use_github_orchestrator else memory_context,
                 selection_context=selection_context,
                 provider=active_provider,
                 model=effective_model,
                 user_query=last_prompt,
             )
 
-            if effective_github_mode:
+            if resolved_plan.use_github_orchestrator:
                 session_factory = get_session_factory()
                 with session_factory() as gh_db:
                     user_rec = (
@@ -1821,6 +2039,10 @@ def _create_streaming_response(
                         conversation_id=conversation_id,
                         llm_client=client,
                         base_system_prompt=system_prompt,
+                        chat_mode=resolved_plan.mode,
+                        allowed_tools=resolved_plan.allowed_tools,
+                        persist_repo_context=resolved_plan.persist_repo_context,
+                        guard_decision=resolved_plan.guard,
                     )
                     for evt in gh_orch.run_stream(
                         prompt=last_prompt,
@@ -1858,6 +2080,7 @@ def _create_streaming_response(
                             token_count += 1
                             yield f"event: token\ndata: {json.dumps({'chunk': chunk})}\n\n"
             else:
+                yield f"event: status\ndata: {json.dumps(resolved_plan.initial_status)}\n\n"
                 chat_payload = [{"role": "system", "content": system_prompt}] + history[-8:]
 
                 stream_iter = (
@@ -1866,9 +2089,19 @@ def _create_streaming_response(
                     else iter([client.chat(chat_payload, json_format=False)])
                 )
 
+                emitted_generating_status = False
                 for chunk in stream_iter:
                     if not chunk:
                         continue
+                    if not emitted_generating_status and resolved_plan.intent in (
+                        UserIntent.GENERAL_CODING,
+                        UserIntent.ANALYZE_PROVIDED_CODE,
+                    ):
+                        emitted_generating_status = True
+                        prep_status = ProgressMessageManager.status_event(
+                            "generating", "Preparing your response..."
+                        )
+                        yield f"event: status\ndata: {json.dumps(prep_status)}\n\n"
                     if ttft is None:
                         ttft = time.perf_counter() - t0
                         logger.info(
@@ -1932,7 +2165,11 @@ def _create_streaming_response(
                     target_asst = gen_db.query(MessageRecord).filter_by(id=saved_msg_id).first()
                     if target_asst:
                         ConversationMemoryManager.index_message(
-                            gen_db, target_asst, user_id=user_id
+                            gen_db,
+                            target_asst,
+                            user_id=user_id,
+                            source_mode=resolved_plan.mode,
+                            contains_repo_context=resolved_plan.use_github_orchestrator,
                         )
                         ConversationMemoryManager.generate_or_update_summary(
                             gen_db, conversation_id, user_id=user_id, llm_client=client
@@ -1958,6 +2195,7 @@ def _create_streaming_response(
                 "conversation_id": conversation_id,
                 "message_id": saved_msg_id,
                 "user_message_id": user_message_id,
+                "mode": resolved_plan.mode,
                 "content": full_text,
                 "created_at": saved_created_at,
                 "metrics": {
@@ -2115,6 +2353,9 @@ def _generate_assistant_reply(
     provider_override: str | None = None,
     model_override: str | None = None,
     db: Session | None = None,
+    user: UserRecord | None = None,
+    route_plan: ToolRoutePlan | None = None,
+    explicit_repo: str | None = None,
 ) -> str:
     settings = get_settings()
     provider = (provider_override or settings.llm_provider or "llm").lower().strip()
@@ -2126,11 +2367,13 @@ def _generate_assistant_reply(
             detail=norm.user_message,
         )
 
+    use_gh_orch = bool(route_plan and route_plan.use_github_orchestrator)
+
     try:
         client = get_llm_client(
             provider=provider,
             model=model_override,
-            timeout=40.0,
+            timeout=120.0 if use_gh_orch else 40.0,
         )
     except Exception as exc:
         norm = normalize_ai_error(exc, provider)
@@ -2154,13 +2397,49 @@ def _generate_assistant_reply(
     system_prompt = _build_system_prompt(
         diff_context=diff_context,
         document_context=document_context,
-        memory_context=memory_context,
+        memory_context=None if use_gh_orch else memory_context,
         selection_context=selection_context,
         provider=provider,
         model=effective_model,
         user_query=last_user_query,
         db=db,
     )
+
+    if use_gh_orch and db is not None and route_plan is not None:
+        try:
+            gh_orch = GitHubChatOrchestrator(
+                db=db,
+                user=user,
+                conversation_id=conversation_id,
+                llm_client=client,
+                base_system_prompt=system_prompt,
+                chat_mode=route_plan.mode,
+                allowed_tools=route_plan.allowed_tools,
+                persist_repo_context=route_plan.persist_repo_context,
+                guard_decision=route_plan.guard,
+            )
+            tokens: list[str] = [
+                str(evt.get("chunk") or "")
+                for evt in gh_orch.run_stream(
+                    prompt=last_user_query or "",
+                    history=messages,
+                    explicit_repo=explicit_repo,
+                )
+                if evt.get("type") == "token" and evt.get("chunk")
+            ]
+            joined = "".join(tokens).strip()
+            if joined:
+                return joined
+            raise ValueError("Received empty completion from model")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            norm = normalize_ai_error(exc, provider)
+            raise HTTPException(
+                status_code=norm.status_code,
+                detail=norm.user_message,
+            )
+
     chat_payload = [{"role": "system", "content": system_prompt}] + messages[-8:]
 
     try:

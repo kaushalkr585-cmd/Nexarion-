@@ -49,6 +49,30 @@ def _is_poisoned_memory_text(text: str) -> bool:
     return False
 
 
+_REPO_MEMORY_MARKERS: tuple[str, ...] = (
+    "# repository inspection:",
+    "=== github integration mode",
+    "active repository context:",
+    "verified repository metadata:",
+    "multi-agent code review findings",
+    "## a. repository overview",
+    "synthesizing authoritative engineering report",
+    "pull request diff:",
+)
+
+
+def _is_repository_context_content(text: str | None) -> bool:
+    """Detect repository/PR inspection outputs so they are never auto-injected into Normal Mode."""
+    lower = (text or "").lower()
+    if not lower:
+        return False
+    if any(marker in lower for marker in _REPO_MEMORY_MARKERS):
+        return True
+    if "https://github.com/" in lower and "/blob/" in lower:
+        return True
+    return False
+
+
 class ConversationMemoryManager:
     @classmethod
     def index_message(
@@ -56,6 +80,9 @@ class ConversationMemoryManager:
         db: Session,
         message: MessageRecord,
         user_id: str | None = None,
+        *,
+        source_mode: str | None = None,
+        contains_repo_context: bool | None = None,
     ) -> ConversationMemoryRecord | None:
         content = (message.content or "").strip()
 
@@ -71,6 +98,23 @@ class ConversationMemoryManager:
         if effective_user_id is None and message.conversation:
             effective_user_id = message.conversation.user_id
 
+        resolved_source_mode = source_mode or (
+            getattr(message.conversation, "mode", None) if message.conversation else "normal"
+        )
+        is_repo_mem = (
+            bool(contains_repo_context)
+            if contains_repo_context is not None
+            else (
+                resolved_source_mode == "github"
+                or _is_repository_context_content(content)
+            )
+        )
+        mem_metadata = {
+            "role": message.role,
+            "source_mode": resolved_source_mode or "normal",
+            "contains_repo_context": is_repo_mem,
+        }
+
         existing = (
             db.query(ConversationMemoryRecord)
             .filter(ConversationMemoryRecord.source_message_id == message.id)
@@ -83,6 +127,7 @@ class ConversationMemoryManager:
         if existing:
             existing.content = content
             existing.embedding = embedding
+            existing.metadata_json = mem_metadata
             existing.updated_at = datetime.now(UTC)
             db.commit()
             return existing
@@ -95,7 +140,7 @@ class ConversationMemoryManager:
             role=message.role,
             content=content,
             embedding=embedding,
-            metadata_json={"role": message.role},
+            metadata_json=mem_metadata,
         )
         db.add(memory_rec)
         try:
@@ -238,6 +283,7 @@ class ConversationMemoryManager:
         current_conversation_id: str | None = None,
         limit: int | None = None,
         token_budget: int | None = None,
+        include_repository_memories: bool = False,
     ) -> list[MemoryExcerpt]:
         settings = get_settings()
         if not settings.conversation_memory_enabled:
@@ -255,6 +301,7 @@ class ConversationMemoryManager:
                 ConversationMemoryRecord,
                 ConversationRecord.title,
                 ConversationRecord.created_at,
+                ConversationRecord.mode,
             )
             .join(
                 ConversationRecord,
@@ -262,6 +309,9 @@ class ConversationMemoryManager:
             )
             .filter(ConversationRecord.is_archived.is_(False))
         )
+
+        if not include_repository_memories:
+            base_stmt = base_stmt.filter(ConversationRecord.mode != "github")
 
         if user_id:
             base_stmt = base_stmt.filter(ConversationMemoryRecord.user_id == user_id)
@@ -306,7 +356,7 @@ class ConversationMemoryManager:
         query_keywords = [t for t in raw_tokens if t not in stop_words]
 
         keyword_scores: dict[str, float] = {}
-        all_candidates: dict[str, tuple[ConversationMemoryRecord, str, datetime]] = {}
+        all_candidates: dict[str, tuple[ConversationMemoryRecord, str, datetime, str]] = {}
 
         is_postgres = False
         try:
@@ -328,13 +378,14 @@ class ConversationMemoryManager:
                         func.ts_rank_cd(
                             func.to_tsvector("english", ConversationMemoryRecord.content),
                             func.to_tsquery("english", tsquery_str),
-                        ).desc()
+                        ).desc(),
+                        ConversationMemoryRecord.created_at.desc(),
                     )
                     .limit(max_results * 4)
                 )
                 fts_rows = db.execute(fts_stmt).all()
-                for mem, title, dt in fts_rows:
-                    all_candidates[mem.id] = (mem, title, dt)
+                for mem, title, dt, conv_mode in fts_rows:
+                    all_candidates[mem.id] = (mem, title, dt, conv_mode)
                     keyword_scores[mem.id] = 1.0
             except Exception as fts_err:
                 logger.debug("PostgreSQL FTS error, falling back to term matching: %s", fts_err)
@@ -343,10 +394,14 @@ class ConversationMemoryManager:
             or_clauses = [
                 ConversationMemoryRecord.content.ilike(f"%{kw}%") for kw in query_keywords[:6]
             ]
-            kw_stmt = base_stmt.filter(or_(*or_clauses)).limit(max_results * 4)
+            kw_stmt = (
+                base_stmt.filter(or_(*or_clauses))
+                .order_by(ConversationMemoryRecord.created_at.desc())
+                .limit(max_results * 4)
+            )
             kw_rows = db.execute(kw_stmt).all()
-            for mem, title, dt in kw_rows:
-                all_candidates[mem.id] = (mem, title, dt)
+            for mem, title, dt, conv_mode in kw_rows:
+                all_candidates[mem.id] = (mem, title, dt, conv_mode)
 
                 matches = sum(1 for kw in query_keywords if kw in mem.content.lower())
                 keyword_scores[mem.id] = matches / max(1, len(query_keywords))
@@ -355,10 +410,14 @@ class ConversationMemoryManager:
             title_clauses = [
                 ConversationRecord.title.ilike(f"%{kw}%") for kw in query_keywords[:4]
             ]
-            title_stmt = base_stmt.filter(or_(*title_clauses)).limit(max_results * 2)
-            for mem, title, dt in db.execute(title_stmt).all():
+            title_stmt = (
+                base_stmt.filter(or_(*title_clauses))
+                .order_by(ConversationMemoryRecord.created_at.desc())
+                .limit(max_results * 2)
+            )
+            for mem, title, dt, conv_mode in db.execute(title_stmt).all():
                 if mem.id not in all_candidates:
-                    all_candidates[mem.id] = (mem, title, dt)
+                    all_candidates[mem.id] = (mem, title, dt, conv_mode)
                     keyword_scores[mem.id] = 0.85
 
         vector_scores: dict[str, float] = {}
@@ -368,12 +427,12 @@ class ConversationMemoryManager:
         vector_candidates_stmt = base_stmt.order_by(
             ConversationMemoryRecord.created_at.desc()
         ).limit(30)
-        for mem, title, dt in db.execute(vector_candidates_stmt).all():
+        for mem, title, dt, conv_mode in db.execute(vector_candidates_stmt).all():
             if mem.id not in all_candidates:
-                all_candidates[mem.id] = (mem, title, dt)
+                all_candidates[mem.id] = (mem, title, dt, conv_mode)
 
         if query_embedding:
-            for mem_id, (mem, _, _) in all_candidates.items():
+            for mem_id, (mem, _, _, _) in all_candidates.items():
                 if mem.embedding:
                     sim = compute_cosine_similarity(query_embedding, mem.embedding)
                     if sim >= settings.memory_similarity_threshold:
@@ -382,8 +441,16 @@ class ConversationMemoryManager:
         ranked_excerpts: list[MemoryExcerpt] = []
         now = datetime.now(UTC)
 
-        for mem_id, (mem, conv_title, conv_created_at) in all_candidates.items():
+        for mem_id, (mem, conv_title, conv_created_at, conv_mode) in all_candidates.items():
             if _is_poisoned_memory_text(mem.content):
+                continue
+            mem_meta = mem.metadata_json or {}
+            if not include_repository_memories and (
+                conv_mode == "github"
+                or mem_meta.get("source_mode") == "github"
+                or mem_meta.get("contains_repo_context")
+                or _is_repository_context_content(mem.content)
+            ):
                 continue
             kw_score = keyword_scores.get(mem_id, 0.0)
             vec_score = vector_scores.get(mem_id, 0.0)
@@ -410,7 +477,7 @@ class ConversationMemoryManager:
                 )
             )
 
-        ranked_excerpts.sort(key=lambda x: x.score, reverse=True)
+        ranked_excerpts.sort(key=lambda x: (x.score, x.created_at), reverse=True)
 
         packed_excerpts: list[MemoryExcerpt] = []
         estimated_tokens_used = 0

@@ -28,6 +28,7 @@ def ensure_github_tables() -> None:
             tables=[
                 Base.metadata.tables["github_connections"],
                 Base.metadata.tables["conversation_repository_contexts"],
+                Base.metadata.tables["github_access_audit_logs"],
             ],
             checkfirst=True,
         )
@@ -116,7 +117,18 @@ def resolve_user_github_context(
 
             needs_refresh = not token or not expires_at or expires_at <= now + timedelta(minutes=2)
             if needs_refresh:
-                svc = GitHubService()
+                from code_review.github.access_guard import GitHubAccessGuard
+
+                svc = GitHubService(
+                    access_grant=GitHubAccessGuard.authorize_auth_flow(
+                        user=user,
+                        operation="create_installation_access_token",
+                        reason="GitHub App installation token renewal.",
+                        db=db,
+                    ),
+                    bound_user=user,
+                    db=db,
+                )
                 try:
                     token_data = svc.create_installation_access_token(conn.installation_id)
                     new_token = token_data.get("token")
@@ -240,4 +252,10 @@ def mark_connection_revoked_or_expired(
     if conn:
         conn.connection_status = status_name
     user.github_connected = False
+    try:
+        from code_review.github.access_guard import bump_user_disconnect_epoch
+
+        bump_user_disconnect_epoch(user.id)
+    except Exception:
+        pass
     db.commit()

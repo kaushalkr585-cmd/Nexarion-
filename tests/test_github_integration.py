@@ -252,7 +252,10 @@ class TestReviewFormattingAndInlineComments:
         assert "Global complexity warning" in summary_md
 
     def test_post_pull_request_review_resilience_422_fallback(self) -> None:
-        service = GitHubService(token="fake_token")
+        from code_review.github.access_guard import GitHubAccessGuard
+
+        grant = GitHubAccessGuard.authorize_webhook(owner="acme", repo="backend-core")
+        service = GitHubService(token="fake_token", access_grant=grant)
 
         mock_422_response = MagicMock()
         mock_422_response.status_code = 422
@@ -292,7 +295,10 @@ class TestReviewFormattingAndInlineComments:
 
 class TestCommitStatusAndPublishing:
     def test_create_commit_status(self) -> None:
-        service = GitHubService(token="fake_token")
+        from code_review.github.access_guard import GitHubAccessGuard
+
+        grant = GitHubAccessGuard.authorize_webhook(owner="acme", repo="repo-a")
+        service = GitHubService(token="fake_token", access_grant=grant)
         mock_resp = MagicMock()
         mock_resp.json.return_value = {
             "state": "success",
@@ -414,6 +420,8 @@ class TestBackgroundWebhookReviewExecution:
             ) as mock_post_rev,
             patch.object(ReviewOrchestrator, "review_diff", return_value=mock_result),
         ):
+            from code_review.github.access_guard import GitHubAccessGuard
+
             process_github_webhook_pr_review(
                 owner="acme",
                 repo="backend-core",
@@ -421,6 +429,9 @@ class TestBackgroundWebhookReviewExecution:
                 pr_title="SQL Injection fix",
                 head_sha="c0ffee12345",
                 author="octocat",
+                webhook_grant=GitHubAccessGuard.authorize_webhook(
+                    owner="acme", repo="backend-core"
+                ),
             )
 
             review = (

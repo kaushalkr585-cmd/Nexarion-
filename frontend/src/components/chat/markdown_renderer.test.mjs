@@ -8,6 +8,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { MarkdownContent } from "./MarkdownContent.tsx";
 import {
+  analyzeCodeBlockLines,
+  analyzeTableFromHast,
   normalizeCodeLanguage,
   preprocessMarkdown,
   sanitizeLinkHref,
@@ -259,4 +261,204 @@ test("Incremental chunk-by-chunk streaming of mixed Markdown renders cleanly at 
   assert.ok(finalHtml.includes('class="katex"') && finalHtml.includes('class="katex-display"'));
   assert.ok(finalHtml.includes("$50 and $100"));
   assert.ok(finalHtml.includes("<blockquote") && finalHtml.includes("Child"));
+});
+
+test("MarkdownContent classifies compact vs wide/long tables for intelligent mobile responsive layout", () => {
+  const compactTwoColMd = [
+    "| Setting | Value |",
+    "| --- | --- |",
+    "| Port | 8000 |",
+    "| Mode | Production |",
+  ].join("\n");
+
+  const compactHtml = renderMarkdown(compactTwoColMd);
+  assert.ok(
+    compactHtml.includes('data-mobile-layout="table"'),
+    "Compact 2-column table should render fixed compact table layout on mobile"
+  );
+  assert.ok(compactHtml.includes('class="nx-cell-label"') && compactHtml.includes("Setting"));
+  assert.ok(compactHtml.includes('class="nx-cell-value"') && compactHtml.includes("8000"));
+
+  const auditMultiColMd = [
+    "| File | Issue | Severity | Fix |",
+    "| --- | --- | --- | --- |",
+    "| `auth.py` | Missing token expiry validation in refresh handler | High | Enforce `exp` claim |",
+    "| `routes.py` | Unbounded query parameter length in repository search | Medium | Clamp to 120 chars |",
+  ].join("\n");
+
+  const auditHtml = renderMarkdown(auditMultiColMd);
+  assert.ok(
+    auditHtml.includes('data-mobile-layout="cards"'),
+    "4-column security audit table should switch to stacked mobile cards below 768px"
+  );
+  assert.ok(auditHtml.includes("File:") && auditHtml.includes("Severity:") && auditHtml.includes("Fix:"));
+  assert.ok(auditHtml.includes("auth.py") && auditHtml.includes("Enforce"));
+
+  const longTwoColMd = [
+    "| Endpoint | Behavioral Contract |",
+    "| --- | --- |",
+    "| `/api/v2/reviews/streaming/events` | Streams multi-agent orchestration chunks and final unified diff verification payloads without dropping intermediate diagnostic markers |",
+  ].join("\n");
+
+  const longTwoColHtml = renderMarkdown(longTwoColMd);
+  assert.ok(
+    longTwoColHtml.includes('data-mobile-layout="cards"'),
+    "2-column table with long descriptions/unbroken endpoint tokens should use stacked cards on mobile"
+  );
+
+  const syntheticWideNode = {
+    type: "element",
+    tagName: "table",
+    children: [
+      {
+        type: "element",
+        tagName: "thead",
+        children: [
+          {
+            type: "element",
+            tagName: "tr",
+            children: [
+              { type: "element", tagName: "th", children: [{ type: "text", value: "Col A" }] },
+              { type: "element", tagName: "th", children: [{ type: "text", value: "Col B" }] },
+              { type: "element", tagName: "th", children: [{ type: "text", value: "Col C" }] },
+            ],
+          },
+        ],
+      },
+      { type: "element", tagName: "tbody", children: [] },
+    ],
+  };
+  const analysis = analyzeTableFromHast(syntheticWideNode);
+  assert.equal(analysis.useStackedMobileCards, true);
+  assert.deepEqual(analysis.headers, ["Col A", "Col B", "Col C"]);
+});
+
+test("Mobile response layout eliminates wasted avatar rail gutter, prevents overflow from long tokens, and aligns composer width", () => {
+  const longUrlAndTokenMd = [
+    "Review endpoint https://github.com/organization/multi-agent-code-review-system/pull/1245/files#diff-9876543210abcdef and variable `NEXARION_MULTI_AGENT_ORCHESTRATOR_MAX_CONCURRENT_REVIEWS`.",
+    "",
+    "- Nested outer item",
+    "  - Nested inner item with `inline_very_long_token_identifier_without_any_spaces_or_hyphens`",
+    "",
+    "```python",
+    "def very_long_horizontal_signature(first_parameter: str, second_parameter: str, third_parameter: str) -> dict[str, str]:",
+    "    return {'status': 'ok'}",
+    "```",
+  ].join("\n");
+
+  const html = renderMarkdown(longUrlAndTokenMd);
+  assert.ok(html.includes("[overflow-wrap:anywhere]"), "Links and inline code apply overflow-wrap: anywhere");
+  assert.ok(html.includes("overflow-x-auto overscroll-x-contain"), "Long fenced code blocks remain horizontally scrollable");
+
+  const workspacePath = path.join(__dirname, "AIConversationWorkspace.tsx");
+  const workspaceSrc = fs.readFileSync(workspacePath, "utf-8");
+  assert.ok(
+    workspaceSrc.includes("px-3 sm:px-4 md:px-5 lg:px-7 xl:px-8") &&
+      workspaceSrc.includes("md:max-w-[820px] lg:max-w-[960px] xl:max-w-[1060px]"),
+    "Scroll list, skeleton, and composer wrapper must share responsive horizontal padding and 1060px desktop max-width"
+  );
+  assert.ok(
+    workspaceSrc.includes("flex flex-col md:flex-row gap-1.5 md:gap-2.5 lg:gap-3.5"),
+    "AssistantMessageItem uses stacked mobile header layout and row layout on md+ desktop"
+  );
+  assert.ok(
+    workspaceSrc.includes("hidden md:flex md:w-8 md:h-8") &&
+      workspaceSrc.includes("flex md:hidden items-center gap-2"),
+    "Desktop side avatar hides on mobile while compact inline identity header renders on mobile"
+  );
+
+  const cssPath = path.resolve(__dirname, "../../index.css");
+  const cssSrc = fs.readFileSync(cssPath, "utf-8");
+  assert.ok(cssSrc.includes("overflow-wrap: anywhere;"), "index.css enables overflow-wrap: anywhere for mobile wrapping");
+  assert.ok(cssSrc.includes('[data-mobile-layout="table"]'), "index.css includes fixed-layout rule for compact mobile tables");
+  assert.ok(cssSrc.includes('[data-mobile-layout="cards"]'), "index.css includes stacked card rule for multi-column tables");
+  assert.ok(cssSrc.includes("table-layout: fixed;"), "index.css enforces table-layout: fixed on compact mobile tables");
+  assert.ok(cssSrc.includes("@media (max-width: 767px)"), "index.css scopes responsive mobile overrides below 768px");
+});
+
+test("Phase 2 & 3 & 4: Intelligent code block line wrapping, App/Workspace flex min-w-0 hierarchy, and long stress reports", () => {
+  const longPythonAnalysis = analyzeCodeBlockLines(
+    "python",
+    "def process(first_arg: str, second_arg: str, third_arg: str, fourth_arg: str) -> dict[str, str]:\n    return {'result': first_arg}"
+  );
+  assert.equal(longPythonAnalysis.hasLongLines, true, "Detects long Python signatures for Wrap toggle");
+  assert.equal(
+    longPythonAnalysis.defaultWrapped,
+    false,
+    "Structured Python code defaults to unwrapped formatting with horizontal scroll"
+  );
+
+  const shortSnippetAnalysis = analyzeCodeBlockLines("bash", "npm run test");
+  assert.equal(shortSnippetAnalysis.hasLongLines, false, "Short snippets omit unnecessary Wrap toggle chrome");
+  assert.equal(shortSnippetAnalysis.defaultWrapped, false);
+
+  const longProseTextAnalysis = analyzeCodeBlockLines(
+    "plaintext",
+    "2026-11-27 INFO Request processing completed cleanly across all multi-agent orchestrators without dropping streaming packets or overflowing container boundaries."
+  );
+  assert.equal(
+    longProseTextAnalysis.defaultWrapped,
+    true,
+    "Unformatted long plaintext log output defaults to wrapped readability"
+  );
+
+  const asciiTreeTextAnalysis = analyzeCodeBlockLines(
+    "plaintext",
+    "src/\n├── components/\n│   └── very_long_nested_directory_name_for_rendering_architecture_validation_across_desktop_screens/\n└── utils/"
+  );
+  assert.equal(
+    asciiTreeTextAnalysis.defaultWrapped,
+    false,
+    "Plaintext with ASCII box-drawing alignment preserves unwrapped formatting by default"
+  );
+
+  const stressAuditMd = [
+    "# Security & Scalability Architecture Review",
+    "",
+    "Analyzed endpoint https://internal.example.com/api/v2/organizations/multi-agent-code-review/pull-requests/4821/findings?include=diff,ast,telemetry.",
+    "",
+    "| Severity | Component | File | Root Cause | Remediation | Verification |",
+    "| :--- | :--- | :--- | :--- | :--- | :--- |",
+    "| High | Auth | `backend/auth/jwt_middleware.py` | Missing `token_version` revocation validation inside `verify_refresh_token_payload_signature` | Enforce Redis/DB `token_version` equality check | Unit + integration tests |",
+    "| Medium | UI | `frontend/src/components/chat/MarkdownContent.tsx` | Unconstrained table inline code tokens expanding parent cells | Enable `white-space: break-spaces` + `overflow-wrap: anywhere` | Viewport sweep |",
+    "",
+    "- Parent Security Finding",
+    "  - Nested detail with `NEXARION_ORCHESTRATOR_MAX_CONCURRENT_STREAMING_WORKERS_LIMIT` and inline math $O(n \\log n)$",
+    "    ```typescript",
+    "    export async function executeMultiAgentAuditPipeline(repositoryFullName: string, pullRequestId: number, options: { includeAst: boolean; timeoutMs: number }): Promise<void> {",
+    "      console.log(repositoryFullName, pullRequestId, options);",
+    "    }",
+    "    ```",
+    "",
+    "10. Tenth numbered verification item with [Documentation](https://docs.example.com/nexarion/multi-agent/pipeline).",
+  ].join("\n");
+
+  const stressHtml = renderMarkdown(stressAuditMd);
+  assert.ok(stressHtml.includes('data-mobile-layout="cards"'), "6-column table transforms to mobile cards < 768px");
+  assert.ok(stressHtml.includes("Verification:"), "6-column card preserves all header labels");
+  assert.ok(stressHtml.includes('aria-label="Wrap long code lines"'), "Long TS code block renders Wrap toggle");
+  assert.ok(stressHtml.includes('data-wrapped="false"'), "Structured TS code block preserves unwrapped default");
+  assert.ok(stressHtml.includes("hljs-keyword") && stressHtml.includes("Copy code"), "Preserves syntax highlighting and Copy code button");
+
+  const appPath = path.resolve(__dirname, "../../App.tsx");
+  const appSrc = fs.readFileSync(appPath, "utf-8");
+  assert.ok(
+    appSrc.includes('flex-1 flex flex-col min-w-0') &&
+      appSrc.includes('flex-1 flex flex-col w-full min-w-0 min-h-0 relative'),
+    "App.tsx flex chain must enforce min-w-0 so wide chat content never expands main shell"
+  );
+
+  const mdSrc = fs.readFileSync(path.join(__dirname, "MarkdownContent.tsx"), "utf-8");
+  assert.ok(!mdSrc.includes("min-w-[72px]"), "Table cells must not force rigid 72px min-width on dense columns");
+
+  const cssPath = path.resolve(__dirname, "../../index.css");
+  const cssSrc = fs.readFileSync(cssPath, "utf-8");
+  assert.ok(
+    cssSrc.includes('.nx-code-pre[data-wrapped="true"]'),
+    "index.css defines wrapped code pre styling preserving indentation"
+  );
+  assert.ok(
+    cssSrc.includes("white-space: break-spaces;"),
+    "index.css allows table inline code tokens to wrap cleanly across desktop and mobile"
+  );
 });

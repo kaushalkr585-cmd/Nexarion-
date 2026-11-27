@@ -19,6 +19,16 @@ from code_review.github.auth_resolver import (
     resolve_user_github_context,
 )
 from code_review.github.explorer import RepositoryExplorer
+from code_review.github.mode_router import (
+    ChatMode,
+    GitHubGuardDecision,
+    GitHubToolGuard,
+    IntentClassifier,
+    ProgressMessageManager,
+    UserIntent,
+    extract_explicit_repo_slug,
+    looks_like_casual_chitchat,
+)
 from code_review.github.service import GitHubApiError, GitHubAuthError, GitHubService
 from code_review.github.tools import GITHUB_TOOL_DEFINITIONS, GitHubToolRegistry
 
@@ -29,128 +39,26 @@ MAX_TOOL_ROUNDS = 8
 EXPLICIT_REPO_RE = re.compile(r"\b([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)\b")
 GITHUB_URL_RE = re.compile(r"https?://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)")
 
-GITHUB_INTENT_HINTS = (
-    "repo",
-    "repository",
-    "repositories",
-    "github",
-    "commit",
-    "commits",
-    "pull request",
-    "pull requests",
-    "pr ",
-    "prs",
-    "branch",
-    "branches",
-    "issue",
-    "issues",
-    "workflow",
-    "actions",
-    "ci/cd",
-    "backend",
-    "frontend",
-    "architecture",
-    "codebase",
-    "project",
-    "vulnerabilit",
-    "security",
-    "unused dependenc",
-    "authentication",
-    "jwt",
-    "database",
-    "folder",
-    "directory",
-    "file",
-    "inspect",
-    "review",
-    "analyze",
-    "compare",
-)
 
-CASUAL_GREETING_RE = re.compile(
-    r"^\s*(?:hi|hello|hey|yo|sup|good morning|good afternoon|good evening|how are you|how's it going|what's up|thanks|thank you|ok|okay|bye)"
-    r"(?:[\s,!]+(?:there|nexarion|how are you|how's it going|what's up|man|bro|team))?[!.? ]*$",
-    re.IGNORECASE,
-)
-
-
-def looks_like_casual_chitchat(prompt: str) -> bool:
-    clean = (prompt or "").strip()
-    if not clean:
-        return True
-    if CASUAL_GREETING_RE.match(clean):
-        return True
-    return False
-
-
-def looks_like_github_intent(prompt: str, has_locked_repo: bool = False) -> bool:
-    if looks_like_casual_chitchat(prompt):
-        return False
-    lower = prompt.lower()
-    if GITHUB_URL_RE.search(prompt):
-        return True
-    if any(hint in lower for hint in GITHUB_INTENT_HINTS):
-        return True
-    if has_locked_repo:
-        repo_cues = (
-            "file",
-            "files",
-            "code",
-            "directory",
-            "folder",
-            "branch",
-            "commit",
-            "pr",
-            "repo",
-            "repository",
-            "inspect",
-            "audit",
-            "security",
-            "function",
-            "class",
-            "test",
-            "tests",
-            "bug",
-            "vulnerability",
-            "issue",
-            "readme",
-            "config",
-        )
-        return any(cue in lower for cue in repo_cues)
-    return False
+def looks_like_github_intent(
+    prompt: str,
+    has_locked_repo: bool = False,
+    mode: ChatMode = "github",
+) -> bool:
+    intent = IntentClassifier.classify(
+        prompt,
+        mode=mode,
+        has_locked_repo=has_locked_repo if mode == "github" else False,
+    )
+    return intent in {
+        UserIntent.GITHUB_REPO_LIST,
+        UserIntent.GITHUB_PR_OPERATION,
+        UserIntent.GITHUB_REPO_INSPECTION,
+    }
 
 
 def _extract_explicit_repo_slug(prompt: str) -> str | None:
-    url_match = GITHUB_URL_RE.search(prompt)
-    if url_match:
-        owner, repo = url_match.group(1), url_match.group(2)
-        return f"{owner}/{repo.removesuffix('.git')}"
-    for match in EXPLICIT_REPO_RE.finditer(prompt):
-        candidate = match.group(1)
-        owner, repo = candidate.split("/", 1)
-        # Filter out common file paths like src/code_review or api/auth
-        if owner.lower() in (
-            "src",
-            "app",
-            "api",
-            "frontend",
-            "backend",
-            "tests",
-            "docs",
-            "http",
-            "https",
-            "application",
-            "text",
-            "usr",
-            "var",
-            "etc",
-        ):
-            continue
-        if "." in repo and not repo.endswith(".js") and not repo.endswith(".py"):
-            return candidate
-        if "-" in owner or "_" in owner or repo[0].isupper():
-            return candidate
-    return None
+    return extract_explicit_repo_slug(prompt)
 
 
 GENERIC_REPO_TERMS = {
@@ -693,12 +601,21 @@ class GitHubChatOrchestrator:
         conversation_id: str,
         llm_client: Any,
         base_system_prompt: str,
+        *,
+        chat_mode: ChatMode = "github",
+        allowed_tools: frozenset[str] | None = None,
+        persist_repo_context: bool = True,
+        guard_decision: GitHubGuardDecision | None = None,
     ) -> None:
         self.db = db
         self.user = user
         self.conversation_id = conversation_id
         self.llm_client = llm_client
         self.base_system_prompt = base_system_prompt
+        self.chat_mode: ChatMode = chat_mode
+        self.allowed_tools = allowed_tools
+        self.persist_repo_context = persist_repo_context
+        self.guard_decision = guard_decision
 
     def _get_locked_repo_context(self) -> ConversationRepositoryContextRecord | None:
         try:
@@ -758,10 +675,34 @@ class GitHubChatOrchestrator:
         explicit_repo: str | None = None,
     ) -> Iterator[dict[str, Any]]:
         auth: ResolvedGitHubAuth = resolve_user_github_context(self.db, self.user)
-        locked_ctx = self._get_locked_repo_context()
+        # Never inherit a prior locked repo context unless actively operating in GitHub mode
+        locked_ctx = self._get_locked_repo_context() if self.chat_mode == "github" else None
 
-        # 1. If it's casual chitchat ("Hi, how are you?"), respond normally without GitHub API calls
-        if looks_like_casual_chitchat(prompt) and not explicit_repo:
+        # Evaluate authoritative mode + intent + authorization guard
+        guard = self.guard_decision
+        if guard is None:
+            classified_intent = IntentClassifier.classify(
+                prompt,
+                mode=self.chat_mode,
+                explicit_repo=explicit_repo,
+                has_locked_repo=bool(locked_ctx),
+            )
+            guard = GitHubToolGuard.authorize(
+                db=self.db,
+                user=self.user,
+                mode=self.chat_mode,
+                intent=classified_intent,
+                prompt=prompt,
+                explicit_repo=explicit_repo,
+            )
+
+        # 1. Non-GitHub intents (chitchat, educational GitHub questions, general coding, pasted code)
+        # must respond normally without touching GitHub APIs or emitting GitHub status messages.
+        if not guard.use_github_orchestrator:
+            yield {
+                "type": "status",
+                **ProgressMessageManager.initial_normal_status(guard.intent),
+            }
             chat_payload = [{"role": "system", "content": self.base_system_prompt}] + history[-8:]
             stream_iter = (
                 self.llm_client.stream_chat(chat_payload)
@@ -773,46 +714,87 @@ class GitHubChatOrchestrator:
                     yield {"type": "token", "chunk": chunk}
             return
 
-        # 2. Check if user requested an explicit public repo slug or URL
+        from code_review.github.access_guard import GitHubAccessGuard, grant_scope
+
         prompt_repo_slug = explicit_repo or _extract_explicit_repo_slug(prompt)
+        effective_allowed_tools = (
+            self.allowed_tools if self.allowed_tools is not None else guard.allowed_tools
+        )
+        turn_grant = GitHubAccessGuard.authorize_chat_turn(
+            db=self.db,
+            user=self.user,
+            conversation_id=self.conversation_id,
+            mode=self.chat_mode,
+            intent=guard.intent.value,
+            is_github_intent=guard.is_github_intent,
+            allow_tools=guard.allow_github_tools,
+            allowed_tools=effective_allowed_tools,
+            explicit_repo=prompt_repo_slug,
+            auth_connected=auth.connected,
+            auth_status=auth.connection_status,
+            operation="chat_github_orchestration",
+            reason=guard.denial_reason or f"Chat turn ({self.chat_mode}/{guard.intent.value})",
+        )
 
-        # If not connected and no explicit public repo given, check whether intent actually needs GitHub
-        if not auth.connected and not prompt_repo_slug:
-            if looks_like_github_intent(prompt, has_locked_repo=bool(locked_ctx)):
-                if auth.connection_status in ("expired", "revoked"):
-                    msg = (
-                        "Your GitHub authorization has expired or was revoked. "
-                        "Please reconnect your GitHub account using the **Connect GitHub** button "
-                        "above or in **Settings** so I can inspect your repositories."
-                    )
-                elif not self.user:
-                    msg = (
-                        "Please sign in and connect your GitHub account to inspect private or personal "
-                        "repositories. You can also ask about a specific public repository URL "
-                        "(for example, `https://github.com/owner/repo`)."
-                    )
-                else:
-                    msg = (
-                        "GitHub is not connected yet for your account. Click **Connect GitHub** "
-                        "to authorize repository access, and I'll be able to inspect your code, "
-                        "commits, pull requests, and issues directly in this chat."
-                    )
-                yield {"type": "token", "chunk": msg}
-                return
-            # Non-GitHub general question even with GitHub chip enabled
-            chat_payload = [{"role": "system", "content": self.base_system_prompt}] + history[-8:]
-            stream_iter = (
-                self.llm_client.stream_chat(chat_payload)
-                if hasattr(self.llm_client, "stream_chat")
-                else iter([self.llm_client.chat(chat_payload, json_format=False)])
-            )
-            for chunk in stream_iter:
-                if chunk:
-                    yield {"type": "token", "chunk": chunk}
+        # 2. If GitHub tools are blocked (e.g., user has not connected GitHub), emit clear auth guidance cleanly
+        if not guard.allow_github_tools or turn_grant is None:
+            if auth.connection_status in ("expired", "revoked"):
+                msg = (
+                    "Your GitHub authorization has expired or was revoked. "
+                    "Please reconnect your GitHub account using the **Connect GitHub** button "
+                    "above or in **Settings** so I can inspect your repositories."
+                )
+            elif not self.user:
+                msg = (
+                    "Please sign in and connect your GitHub account to inspect private or personal "
+                    "repositories. You can also ask about a specific public repository URL "
+                    "(for example, `https://github.com/owner/repo`)."
+                )
+            else:
+                msg = (
+                    "GitHub is not connected yet for your account. Click **Connect GitHub** "
+                    "to authorize repository access, and I'll be able to inspect your code, "
+                    "commits, pull requests, and issues directly in this chat."
+                )
+            yield {"type": "token", "chunk": msg}
             return
 
-        # 3. Resolve GitHubService and active repository
-        gh_service = GitHubService(auth.token, cache_scope=auth.cache_scope)
+        should_persist_repo_context = self.persist_repo_context and guard.persist_repo_context
+
+        # 3. Resolve GitHubService and active repository under explicit turn grant scope
+        gh_service = GitHubService(
+            auth.token,
+            cache_scope=auth.cache_scope,
+            access_grant=turn_grant,
+            bound_user=self.user,
+            db=self.db,
+        )
+        with grant_scope(turn_grant):
+            yield from self._run_authorized_github_flow(
+                gh_service=gh_service,
+                auth=auth,
+                guard=guard,
+                locked_ctx=locked_ctx,
+                prompt=prompt,
+                history=history,
+                prompt_repo_slug=prompt_repo_slug,
+                effective_allowed_tools=effective_allowed_tools,
+                should_persist_repo_context=should_persist_repo_context,
+            )
+
+    def _run_authorized_github_flow(
+        self,
+        *,
+        gh_service: GitHubService,
+        auth: ResolvedGitHubAuth,
+        guard: GitHubGuardDecision,
+        locked_ctx: ConversationRepositoryContextRecord | None,
+        prompt: str,
+        history: list[dict[str, str]],
+        prompt_repo_slug: str | None,
+        effective_allowed_tools: frozenset[str],
+        should_persist_repo_context: bool,
+    ) -> Iterator[dict[str, Any]]:
         active_repo_full: str | None = None
         active_branch: str | None = None
 
@@ -824,12 +806,13 @@ class GitHubChatOrchestrator:
                 details = gh_service.get_repository_details(owner_p, repo_p)
                 active_repo_full = details.get("full_name") or prompt_repo_slug
                 active_branch = details.get("default_branch") or "main"
-                self._save_repo_context(
-                    full_name=active_repo_full,
-                    repo_id=str(details.get("id") or ""),
-                    default_branch=active_branch,
-                    selected_branch=active_branch,
-                )
+                if should_persist_repo_context:
+                    self._save_repo_context(
+                        full_name=active_repo_full,
+                        repo_id=str(details.get("id") or ""),
+                        default_branch=active_branch,
+                        selected_branch=active_branch,
+                    )
             except (GitHubAuthError, httpx.HTTPStatusError) as auth_err:
                 mark_connection_revoked_or_expired(self.db, self.user, "revoked")
                 yield {
@@ -895,7 +878,7 @@ class GitHubChatOrchestrator:
                 }
                 return
 
-            is_listing_repos = any(
+            is_listing_repos = guard.intent == UserIntent.GITHUB_REPO_LIST or any(
                 phrase in prompt.lower()
                 for phrase in (
                     "list my repo",
@@ -916,12 +899,13 @@ class GitHubChatOrchestrator:
             if matched_repo:
                 active_repo_full = matched_repo["full_name"]
                 active_branch = matched_repo.get("default_branch") or "main"
-                self._save_repo_context(
-                    full_name=active_repo_full,
-                    repo_id=str(matched_repo.get("id") or ""),
-                    default_branch=active_branch,
-                    selected_branch=active_branch,
-                )
+                if should_persist_repo_context:
+                    self._save_repo_context(
+                        full_name=active_repo_full,
+                        repo_id=str(matched_repo.get("id") or ""),
+                        default_branch=active_branch,
+                        selected_branch=active_branch,
+                    )
             elif locked_ctx and locked_ctx.repository_full_name and not is_listing_repos:
                 # Prompt did not name another repo, maintain active conversation context
                 active_repo_full = locked_ctx.repository_full_name
@@ -951,13 +935,25 @@ class GitHubChatOrchestrator:
             else (None, None)
         )
 
-        if is_full_repo_inspection_intent(prompt) and default_owner and default_repo:
+        full_inspection_required_tools = {
+            "explore_repository_overview",
+            "get_repository_tree",
+            "run_security_and_quality_agents",
+        }
+        if (
+            is_full_repo_inspection_intent(prompt)
+            and guard.intent == UserIntent.GITHUB_REPO_INSPECTION
+            and full_inspection_required_tools.issubset(effective_allowed_tools)
+            and default_owner
+            and default_repo
+        ):
             yield from self._run_full_repository_inspection(
                 gh_service=gh_service,
                 owner=default_owner,
                 repo=default_repo,
                 branch=active_branch or "main",
                 user_prompt=prompt,
+                persist_repo_context=should_persist_repo_context,
             )
             return
 
@@ -972,8 +968,14 @@ class GitHubChatOrchestrator:
             default_owner=default_owner,
             default_repo=default_repo,
             default_ref=active_branch,
+            allowed_tools=effective_allowed_tools,
             progress_callback=on_tool_progress,
         )
+        scoped_tool_definitions = [
+            td
+            for td in GITHUB_TOOL_DEFINITIONS
+            if td.get("function", {}).get("name") in effective_allowed_tools
+        ]
 
         repo_context_note = (
             f"ACTIVE REPOSITORY CONTEXT:\n"
@@ -1022,18 +1024,17 @@ class GitHubChatOrchestrator:
         text_tool_retried = False
 
         for _round in range(MAX_TOOL_ROUNDS):
-            if _round == 0:
+            if _round == 0 and scoped_tool_definitions:
                 yield {
                     "type": "status",
-                    "stage": "analyzing",
-                    "detail": "Planning GitHub inspection...",
+                    **ProgressMessageManager.initial_github_planning_status(guard.intent),
                 }
 
-            if hasattr(self.llm_client, "chat_with_tools"):
+            if hasattr(self.llm_client, "chat_with_tools") and scoped_tool_definitions:
                 try:
                     resp = self.llm_client.chat_with_tools(
                         tool_messages,
-                        tools=GITHUB_TOOL_DEFINITIONS,
+                        tools=scoped_tool_definitions,
                     )
                 except Exception as tool_call_err:
                     logger.warning(
@@ -1283,6 +1284,7 @@ class GitHubChatOrchestrator:
         repo: str,
         branch: str,
         user_prompt: str,
+        persist_repo_context: bool = True,
     ) -> Iterator[dict[str, Any]]:
         repo_full = f"{owner}/{repo}"
         explorer = RepositoryExplorer(gh_service)
@@ -1315,7 +1317,7 @@ class GitHubChatOrchestrator:
         except Exception:
             tree_paths = []
 
-        if head_sha:
+        if head_sha and persist_repo_context:
             self._save_repo_context(
                 full_name=repo_full,
                 default_branch=branch,

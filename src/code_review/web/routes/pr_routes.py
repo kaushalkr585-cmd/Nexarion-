@@ -8,8 +8,13 @@ from sqlalchemy.orm import Session
 
 from code_review.db.database import get_db
 from code_review.db.models import UserRecord
+from code_review.github.access_guard import (
+    REST_PULL_REQUEST_DETAIL_OPERATIONS,
+    REST_PULL_REQUEST_LIST_OPERATIONS,
+    GitHubAccessGuard,
+)
 from code_review.github.auth_resolver import resolve_user_github_context
-from code_review.github.service import GitHubService
+from code_review.github.service import GitHubAccessDeniedError, GitHubService
 from code_review.web.auth import get_current_user
 from code_review.web.schemas import PullRequestResponse
 
@@ -45,7 +50,20 @@ def list_pull_requests(
             ),
         )
 
-    service = GitHubService(resolved.token, cache_scope=resolved.cache_scope)
+    grant = GitHubAccessGuard.authorize_explicit_rest_operation(
+        db=db,
+        user=user,
+        operation="list_pull_requests",
+        allowed_operations=REST_PULL_REQUEST_LIST_OPERATIONS,
+        reason="User explicitly opened Pull Requests view.",
+    )
+    service = GitHubService(
+        resolved.token,
+        cache_scope=resolved.cache_scope,
+        access_grant=grant,
+        bound_user=user,
+        db=db,
+    )
     try:
         repos = service.list_repositories()
     except Exception as exc:
@@ -127,7 +145,20 @@ def get_pull_request(
             detail="GITHUB_NOT_CONNECTED: GitHub account is not connected.",
         )
 
-    service = GitHubService(resolved.token, cache_scope=resolved.cache_scope)
+    grant = GitHubAccessGuard.authorize_explicit_rest_operation(
+        db=db,
+        user=user,
+        operation="get_pull_request_diff",
+        allowed_operations=REST_PULL_REQUEST_DETAIL_OPERATIONS,
+        reason=f"User explicitly opened Pull Request {owner}/{repo}#{number}.",
+    )
+    service = GitHubService(
+        resolved.token,
+        cache_scope=resolved.cache_scope,
+        access_grant=grant,
+        bound_user=user,
+        db=db,
+    )
     try:
         repos = service.list_repositories()
         repo_names = {r["full_name"].lower() for r in repos} | {r["name"].lower() for r in repos}

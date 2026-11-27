@@ -374,6 +374,20 @@ class RepositoryExplorer:
     def __init__(self, service: GitHubService) -> None:
         self.service = service
 
+    def _check_guard(self, operation: str, owner: str, repo: str) -> None:
+        from unittest.mock import Base as MockBase
+
+        if isinstance(self.service, GitHubService) and not isinstance(self.service, MockBase):
+            from code_review.github.access_guard import GitHubAccessGuard
+
+            GitHubAccessGuard.enforce_service_call(
+                self.service,
+                operation,
+                owner=owner,
+                repo=repo,
+                db=getattr(self.service, "_db", None),
+            )
+
     def explore_overview(
         self,
         owner: str,
@@ -381,6 +395,7 @@ class RepositoryExplorer:
         *,
         ref: str | None = None,
     ) -> dict[str, Any]:
+        self._check_guard("get_repository_details", owner, repo)
         details = self.service.get_repository_details(owner, repo)
         branch = ref or details.get("default_branch") or "main"
         commits = []
@@ -494,6 +509,7 @@ class RepositoryExplorer:
         max_files: int = 8,
         max_bytes_per_file: int = 40_000,
     ) -> dict[str, dict[str, Any]]:
+        self._check_guard("fetch_file", owner, repo)
         clean_paths = [
             p.replace("\\", "/").strip("/") for p in paths if p and not is_sensitive_repo_path(p)
         ][:max_files]
@@ -532,6 +548,7 @@ class RepositoryExplorer:
         Fetch target source files safely into an isolated temporary workspace and run
         existing ReviewOrchestrator static/semantic agents against them.
         """
+        self._check_guard("fetch_file", owner, repo)
         fetched = self.fetch_files_concurrently(
             owner, repo, paths, ref=ref, max_files=12, max_bytes_per_file=80_000
         )

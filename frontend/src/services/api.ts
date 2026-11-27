@@ -1,6 +1,7 @@
 import type {
   AgentConfig,
   Attachment,
+  ChatMode,
   Conversation,
   ConversationRepoContext,
   ConversationSearchResult,
@@ -193,8 +194,8 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 async function readSSEStream(
   response: Response,
   callbacks: {
-    onInit?: (metadata: { id: string; title: string; user_message_id?: string }) => void;
-    onAck?: (data: { conversation_id: string; user_message_id?: string }) => void;
+    onInit?: (metadata: { id: string; title: string; mode?: ChatMode; user_message_id?: string }) => void;
+    onAck?: (data: { conversation_id: string; mode?: ChatMode; user_message_id?: string }) => void;
     onStatus?: (evt: { stage: string; detail: string }) => void;
     onRepoSelect?: (evt: { candidates: GitHubRepo[]; message: string }) => void;
     onRepoMeta?: (evt: { repository: string; branch: string; commit_sha?: string | null }) => void;
@@ -203,6 +204,7 @@ async function readSSEStream(
       conversation_id: string;
       message_id: string;
       user_message_id?: string;
+      mode?: ChatMode;
       content: string;
       created_at: string;
       metrics?: { ttft_ms?: number; total_ms?: number; chunks?: number };
@@ -401,8 +403,10 @@ export const conversationApi = {
     diff_context?: string,
     provider?: string,
     model?: string,
-    attachment_ids?: string[]
+    attachment_ids?: string[],
+    mode?: ChatMode
   ): Promise<Conversation> {
+    const effectiveMode: ChatMode = mode ?? "normal";
     return request<Conversation>("/api/conversations", {
       method: "POST",
       body: JSON.stringify({
@@ -412,6 +416,8 @@ export const conversationApi = {
         provider,
         model,
         attachment_ids: attachment_ids || [],
+        mode: effectiveMode,
+        github_mode: effectiveMode === "github",
       }),
     });
   },
@@ -426,8 +432,10 @@ export const conversationApi = {
     diffContext?: string,
     provider?: string,
     model?: string,
-    attachmentIds?: string[]
+    attachmentIds?: string[],
+    mode?: ChatMode
   ): Promise<Conversation> {
+    const effectiveMode: ChatMode = mode ?? "normal";
     return request<Conversation>(`/api/conversations/${conversationId}/messages`, {
       method: "POST",
       body: JSON.stringify({
@@ -436,6 +444,8 @@ export const conversationApi = {
         provider,
         model,
         attachment_ids: attachmentIds || [],
+        mode: effectiveMode,
+        github_mode: effectiveMode === "github",
       }),
     });
   },
@@ -445,11 +455,20 @@ export const conversationApi = {
     messageId?: string,
     provider?: string,
     model?: string,
-    diffContext?: string
+    diffContext?: string,
+    mode?: ChatMode
   ): Promise<Conversation> {
+    const effectiveMode: ChatMode = mode ?? "normal";
     return request<Conversation>(`/api/conversations/${conversationId}/regenerate`, {
       method: "POST",
-      body: JSON.stringify({ message_id: messageId, provider, model, diff_context: diffContext }),
+      body: JSON.stringify({
+        message_id: messageId,
+        provider,
+        model,
+        diff_context: diffContext,
+        mode: effectiveMode,
+        github_mode: effectiveMode === "github",
+      }),
     });
   },
 
@@ -461,14 +480,15 @@ export const conversationApi = {
       provider?: string;
       model?: string;
       attachmentIds?: string[];
+      mode?: ChatMode;
       githubMode?: boolean;
       githubRepo?: string;
       selectedText?: string;
       selectedMessageId?: string;
     },
     callbacks: {
-      onInit?: (metadata: { id: string; title: string; user_message_id?: string }) => void;
-      onAck?: (data: { conversation_id: string; user_message_id?: string }) => void;
+      onInit?: (metadata: { id: string; title: string; mode?: ChatMode; user_message_id?: string }) => void;
+      onAck?: (data: { conversation_id: string; mode?: ChatMode; user_message_id?: string }) => void;
       onStatus?: (evt: { stage: string; detail: string }) => void;
       onRepoSelect?: (evt: { candidates: GitHubRepo[]; message: string }) => void;
       onRepoMeta?: (evt: { repository: string; branch: string; commit_sha?: string | null }) => void;
@@ -477,6 +497,7 @@ export const conversationApi = {
         conversation_id: string;
         message_id: string;
         user_message_id?: string;
+        mode?: ChatMode;
         content: string;
         created_at: string;
         metrics?: { ttft_ms?: number; total_ms?: number; chunks?: number };
@@ -497,6 +518,8 @@ export const conversationApi = {
       ? `/api/conversations/${conversationId}/messages/stream`
       : `/api/conversations/stream`;
 
+    const effectiveMode: ChatMode = payload.mode ?? (payload.githubMode ? "github" : "normal");
+
     const body = conversationId
       ? JSON.stringify({
           content: payload.content,
@@ -504,7 +527,8 @@ export const conversationApi = {
           provider: payload.provider,
           model: payload.model,
           attachment_ids: payload.attachmentIds || [],
-          github_mode: Boolean(payload.githubMode),
+          mode: effectiveMode,
+          github_mode: effectiveMode === "github",
           github_repo: payload.githubRepo || undefined,
           selected_text: payload.selectedText || undefined,
           selected_message_id: payload.selectedMessageId || undefined,
@@ -515,7 +539,8 @@ export const conversationApi = {
           provider: payload.provider,
           model: payload.model,
           attachment_ids: payload.attachmentIds || [],
-          github_mode: Boolean(payload.githubMode),
+          mode: effectiveMode,
+          github_mode: effectiveMode === "github",
           github_repo: payload.githubRepo || undefined,
         });
 
@@ -557,6 +582,7 @@ export const conversationApi = {
       provider?: string;
       model?: string;
       diffContext?: string;
+      mode?: ChatMode;
       githubMode?: boolean;
       githubRepo?: string;
     },
@@ -568,6 +594,7 @@ export const conversationApi = {
       onDone?: (data: {
         conversation_id: string;
         message_id: string;
+        mode?: ChatMode;
         content: string;
         created_at: string;
         metrics?: { ttft_ms?: number; total_ms?: number; chunks?: number };
@@ -584,6 +611,8 @@ export const conversationApi = {
       headers["Authorization"] = `Bearer ${token}`;
     }
 
+    const effectiveMode: ChatMode = payload.mode ?? (payload.githubMode ? "github" : "normal");
+
     const response = await fetch(`/api/conversations/${conversationId}/regenerate/stream`, {
       method: "POST",
       headers,
@@ -592,7 +621,8 @@ export const conversationApi = {
         provider: payload.provider,
         model: payload.model,
         diff_context: payload.diffContext,
-        github_mode: Boolean(payload.githubMode),
+        mode: effectiveMode,
+        github_mode: effectiveMode === "github",
         github_repo: payload.githubRepo || undefined,
       }),
       signal: callbacks.signal,
@@ -631,8 +661,11 @@ export const conversationApi = {
       provider?: string;
       model?: string;
       attachmentIds?: string[];
+      mode?: ChatMode;
+      githubMode?: boolean;
     }
   ): Promise<Conversation> {
+    const effectiveMode: ChatMode = payload.mode ?? (payload.githubMode ? "github" : "normal");
     return request<Conversation>(
       `/api/conversations/${conversationId}/messages/${messageId}/edit`,
       {
@@ -643,6 +676,8 @@ export const conversationApi = {
           provider: payload.provider,
           model: payload.model,
           attachment_ids: payload.attachmentIds || [],
+          mode: effectiveMode,
+          github_mode: effectiveMode === "github",
         }),
       }
     );
@@ -657,12 +692,13 @@ export const conversationApi = {
       provider?: string;
       model?: string;
       attachmentIds?: string[];
+      mode?: ChatMode;
       githubMode?: boolean;
       githubRepo?: string;
     },
     callbacks: {
-      onInit?: (metadata: { id: string; title: string; user_message_id?: string }) => void;
-      onAck?: (data: { conversation_id: string; user_message_id?: string }) => void;
+      onInit?: (metadata: { id: string; title: string; mode?: ChatMode; user_message_id?: string }) => void;
+      onAck?: (data: { conversation_id: string; mode?: ChatMode; user_message_id?: string }) => void;
       onStatus?: (evt: { stage: string; detail: string }) => void;
       onRepoSelect?: (evt: { candidates: GitHubRepo[]; message: string }) => void;
       onRepoMeta?: (evt: { repository: string; branch: string; commit_sha?: string | null }) => void;
@@ -671,6 +707,7 @@ export const conversationApi = {
         conversation_id: string;
         message_id: string;
         user_message_id?: string;
+        mode?: ChatMode;
         content: string;
         created_at: string;
         metrics?: { ttft_ms?: number; total_ms?: number; chunks?: number };
@@ -688,6 +725,8 @@ export const conversationApi = {
       headers["Authorization"] = `Bearer ${token}`;
     }
 
+    const effectiveMode: ChatMode = payload.mode ?? (payload.githubMode ? "github" : "normal");
+
     const response = await fetch(
       `/api/conversations/${conversationId}/messages/${messageId}/edit/stream`,
       {
@@ -699,7 +738,8 @@ export const conversationApi = {
           provider: payload.provider,
           model: payload.model,
           attachment_ids: payload.attachmentIds || [],
-          github_mode: Boolean(payload.githubMode),
+          mode: effectiveMode,
+          github_mode: effectiveMode === "github",
           github_repo: payload.githubRepo || undefined,
         }),
         signal: callbacks.signal,
@@ -755,6 +795,7 @@ export const conversationApi = {
     id: string,
     payload: {
       title?: string;
+      mode?: ChatMode;
       is_pinned?: boolean;
       is_archived?: boolean;
       is_shared?: boolean;

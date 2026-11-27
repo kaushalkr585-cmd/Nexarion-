@@ -51,6 +51,10 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+const CHAT_HORIZONTAL_PADDING_CLASS = "px-3 sm:px-4 md:px-5 lg:px-7 xl:px-8";
+const CHAT_COLUMN_CONTAINER_CLASS =
+  "mx-auto w-full min-w-0 max-w-full md:max-w-[820px] lg:max-w-[960px] xl:max-w-[1060px]";
+
 interface AIConversationWorkspaceProps {
   conversation: Conversation | null;
   isLoadingConversation?: boolean;
@@ -675,7 +679,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
 +        return True`;
 
   return (
-    <div className="flex flex-col h-full w-full relative z-10 max-w-5xl mx-auto min-h-0 overflow-hidden">
+    <div className="flex flex-col h-full w-full min-w-0 relative z-10 min-h-0 overflow-hidden">
 
       <header className="hidden md:flex flex-shrink-0 items-center justify-between px-6 py-4 border-b border-white/10 bg-black/60 backdrop-blur-md z-20">
         <div className="flex items-center gap-3 min-w-0">
@@ -691,7 +695,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
               <span className="hidden sm:inline">Back</span>
             </button>
           )}
-          <h1 className="text-[15px] sm:text-base font-semibold text-white tracking-tight truncate max-w-md">
+          <h1 className="text-[15px] sm:text-base font-semibold text-white tracking-tight truncate max-w-md lg:max-w-xl">
             {conversation?.title || loadingConversationTitle || "AI Code Review Workspace"}
           </h1>
         </div>
@@ -742,10 +746,10 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
         </div>
       </header>
 
-      <div className="flex-1 relative min-h-0 overflow-hidden flex flex-col">
+      <div className="flex-1 relative min-h-0 min-w-0 overflow-hidden flex flex-col">
         {isLoadingConversation && !conversation ? (
-          <div className="flex-1 min-h-0 overflow-hidden px-3.5 sm:px-6 md:px-8 py-4 sm:py-6 flex flex-col justify-center">
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 pt-6" role="status" aria-live="polite">
+          <div className={`flex-1 min-h-0 min-w-0 overflow-hidden ${CHAT_HORIZONTAL_PADDING_CLASS} py-4 sm:py-6 flex flex-col justify-center`}>
+            <div className={`${CHAT_COLUMN_CONTAINER_CLASS} flex flex-col gap-5 pt-6`} role="status" aria-live="polite">
               <span className="sr-only">Loading conversation</span>
               <div className="flex justify-end">
                 <div className="h-14 w-3/4 animate-pulse rounded-2xl border border-white/10 bg-white/[0.04]" />
@@ -835,9 +839,9 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
           <div
             ref={scrollContainerRef}
             onScroll={handleScroll}
-            className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain overscroll-contain px-3.5 sm:px-6 md:px-8 py-4 sm:py-6"
+            className={`flex-1 min-h-0 min-w-0 overflow-y-auto overscroll-y-contain overscroll-contain ${CHAT_HORIZONTAL_PADDING_CLASS} py-3.5 sm:py-6`}
           >
-            <div className="max-w-3xl mx-auto w-full space-y-6">
+            <div className={`${CHAT_COLUMN_CONTAINER_CLASS} space-y-5 sm:space-y-6`}>
               {messages.map((msg, idx) => {
                 const isUser = msg.role === "user";
                 if (isUser) {
@@ -847,9 +851,9 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                     return (
                       <div
                         key={msg.id}
-                        className="flex flex-col items-end gap-1 animate-fade-in scroll-mt-6 w-full"
+                        className="flex flex-col items-end gap-1 animate-fade-in scroll-mt-6 w-full min-w-0"
                       >
-                        <div className="w-full max-w-[92%] sm:max-w-[85%] p-4 rounded-2xl bg-neutral-900 border border-white/30 shadow-2xl text-left">
+                        <div className="w-full max-w-[92%] md:max-w-[85%] lg:max-w-[80%] min-w-0 p-4 rounded-2xl bg-neutral-900 border border-white/30 shadow-2xl text-left">
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-xs font-mono font-medium text-neutral-300">
                               Edit Message
@@ -925,10 +929,10 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                   return (
                     <div
                       key={msg.id}
-                      className="group flex flex-col items-end gap-1 animate-fade-in scroll-mt-6"
+                      className="group flex flex-col items-end gap-1 animate-fade-in scroll-mt-6 w-full min-w-0"
                     >
                       <div
-                        className={`max-w-[88%] sm:max-w-[80%] px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl text-sm sm:text-[15px] leading-relaxed ${
+                        className={`max-w-[92%] sm:max-w-[86%] md:max-w-[78%] lg:max-w-[74%] min-w-0 px-3.5 py-2.5 sm:px-5 sm:py-3.5 rounded-2xl text-sm sm:text-[15px] leading-relaxed ${
                           msg.status === "error"
                             ? "bg-red-950/20 text-white border border-red-500/40"
                             : "bg-white/10 text-white border border-white/20"
@@ -986,7 +990,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                               <div
                                 key={att.id}
                                 onClick={() => setPreviewAttachment(att)}
-                                className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-black/40 hover:bg-black/60 border border-white/15 hover:border-white/30 text-[13px] text-neutral-200 select-none shadow-sm cursor-pointer transition-colors"
+                                className="flex items-center gap-2 min-w-0 max-w-full px-2.5 py-1.5 rounded-lg bg-black/40 hover:bg-black/60 border border-white/15 hover:border-white/30 text-[13px] text-neutral-200 select-none shadow-sm cursor-pointer transition-colors"
                                 title={`Click to preview ${att.filename}`}
                               >
                                 {att.file_type === "pdf" ? (
@@ -1021,7 +1025,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                         <div
                           data-ask-nexarion-selectable="true"
                           data-message-id={msg.id}
-                          className="whitespace-pre-wrap font-sans select-text text-sm sm:text-[15px] leading-relaxed"
+                          className="whitespace-pre-wrap font-sans select-text text-sm sm:text-[15px] leading-relaxed min-w-0 max-w-full [overflow-wrap:anywhere]"
                         >
                           {msg.content}
                         </div>
@@ -1122,7 +1126,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
               {isSending && !messages.some((m) => m.status === "streaming") && (
                 <div
                   ref={assistantStartRef}
-                  className="flex gap-3.5 justify-start animate-fade-in scroll-mt-6"
+                  className="flex gap-3.5 justify-start animate-fade-in w-full max-w-full min-w-0 scroll-mt-6"
                 >
                   <AdaptiveStatusIndicator
                     state={generationState}
@@ -1159,8 +1163,8 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
         )}
       </div>
 
-      <div className="flex-shrink-0 shrink-0 px-2.5 py-2 sm:px-6 sm:py-3 md:px-8 pb-[max(0.5rem,env(safe-area-inset-bottom))] border-t border-white/10 bg-black/85 backdrop-blur-lg z-20">
-        <div className="max-w-3xl mx-auto w-full">
+      <div className={`flex-shrink-0 shrink-0 ${CHAT_HORIZONTAL_PADDING_CLASS} py-2 sm:py-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] border-t border-white/10 bg-black/85 backdrop-blur-lg z-20`}>
+        <div className={CHAT_COLUMN_CONTAINER_CLASS}>
         {showDiffInput && (
           <div className="mb-2 p-2.5 sm:p-3 rounded-xl bg-neutral-900/80 border border-white/15 animate-fade-in">
             <div className="flex items-center justify-between mb-1.5">
@@ -1554,15 +1558,28 @@ const AssistantMessageItem = React.memo(
       const hasCandidates = Boolean(message.repoCandidates && message.repoCandidates.length > 0);
 
       return (
-        <div ref={ref} className="group flex gap-2.5 sm:gap-3.5 justify-start animate-fade-in w-full scroll-mt-6">
+        <div
+          ref={ref}
+          className="group flex flex-col md:flex-row gap-1.5 md:gap-2.5 lg:gap-3.5 justify-start animate-fade-in w-full max-w-full min-w-0 scroll-mt-6"
+        >
           <div
             data-ask-nexarion-ignore="true"
-            className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-white/[0.08] border border-white/15 flex items-center justify-center flex-shrink-0 mt-0.5 select-none"
+            className="hidden md:flex md:w-8 md:h-8 rounded-xl bg-white/[0.08] border border-white/15 items-center justify-center flex-shrink-0 mt-0.5 select-none"
           >
-            <span className="text-[11px] sm:text-xs font-bold text-white font-mono">NX</span>
+            <span className="text-xs font-bold text-white font-mono">NX</span>
           </div>
 
-          <div className="flex flex-col flex-1 min-w-0 max-w-full">
+          <div
+            data-ask-nexarion-ignore="true"
+            className="flex md:hidden items-center gap-2 px-0.5 select-none"
+          >
+            <div className="w-6 h-6 rounded-lg bg-white/[0.08] border border-white/15 flex items-center justify-center flex-shrink-0">
+              <span className="text-[10px] font-bold text-white font-mono">NX</span>
+            </div>
+            <span className="text-xs font-medium text-neutral-400 tracking-wide">Nexarion</span>
+          </div>
+
+          <div className="flex flex-col flex-1 min-w-0 w-full max-w-full">
             {isStreaming && !hasContent ? (
               <AdaptiveStatusIndicator
                 state={generationState}
@@ -1573,7 +1590,7 @@ const AssistantMessageItem = React.memo(
             ) : (
               <div
                 ref={contentRef}
-                className={`chat-message-content select-text px-3.5 py-3 sm:px-5 sm:py-4 rounded-2xl text-[14.5px] sm:text-[15.25px] leading-[1.68] rounded-tl-sm ${
+                className={`chat-message-content select-text px-3 py-2.5 sm:px-4 sm:py-3 md:px-4 md:py-3.5 lg:px-5 lg:py-4 rounded-2xl text-[14.5px] md:text-[15.25px] leading-[1.65] md:leading-[1.68] rounded-tl-sm min-w-0 w-full max-w-full ${
                   isError
                     ? "bg-red-950/20 text-neutral-200 border border-red-500/30"
                     : "bg-[#0B0B0D]/90 text-neutral-200 border border-white/[0.11]"
@@ -1601,6 +1618,7 @@ const AssistantMessageItem = React.memo(
                   <div
                     data-ask-nexarion-selectable={!isStreaming ? "true" : undefined}
                     data-message-id={message.id}
+                    className="min-w-0 w-full max-w-full"
                   >
                     <MarkdownContent content={message.content} isStreaming={isStreaming} />
                     {isStreaming && (
@@ -1620,7 +1638,7 @@ const AssistantMessageItem = React.memo(
                         type="button"
                         disabled={isGenerating}
                         onClick={() => onSelectRepoCandidate(repo)}
-                        className="flex flex-col items-start p-2.5 rounded-xl bg-white/[0.04] hover:bg-white/10 border border-white/15 hover:border-white/30 text-left transition-all cursor-pointer disabled:opacity-50"
+                        className="flex flex-col items-start min-w-0 max-w-full p-2.5 rounded-xl bg-white/[0.04] hover:bg-white/10 border border-white/15 hover:border-white/30 text-left transition-all cursor-pointer disabled:opacity-50"
                       >
                         <div className="w-full flex items-center justify-between gap-2">
                           <span className="text-xs font-semibold text-white truncate">

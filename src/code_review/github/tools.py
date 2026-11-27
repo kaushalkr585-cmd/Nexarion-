@@ -330,6 +330,7 @@ class GitHubToolRegistry:
         default_owner: str | None = None,
         default_repo: str | None = None,
         default_ref: str | None = None,
+        allowed_tools: frozenset[str] | None = None,
         progress_callback: Callable[[str, str], None] | None = None,
     ) -> None:
         self.service = service
@@ -337,6 +338,7 @@ class GitHubToolRegistry:
         self.default_owner = default_owner
         self.default_repo = default_repo
         self.default_ref = default_ref
+        self.allowed_tools = allowed_tools
         self.progress_callback = progress_callback
         self.inspected_files: set[str] = set()
         self.last_commit_sha: str | None = None
@@ -384,6 +386,70 @@ class GitHubToolRegistry:
                 "error_code": "UNKNOWN_TOOL",
             }
             return json.dumps(err_result, ensure_ascii=False)
+
+        if self.allowed_tools is not None and clean_name not in self.allowed_tools:
+            from code_review.github.access_guard import record_github_access_audit
+
+            logger.warning(
+                "Blocked GitHub tool '%s' under active tool guard scope (%s).",
+                clean_name,
+                sorted(self.allowed_tools),
+            )
+            record_github_access_audit(
+                user_id=getattr(getattr(self.service, "_bound_user", None), "id", None),
+                conversation_id=getattr(
+                    getattr(self.service, "_access_grant", None), "conversation_id", None
+                ),
+                mode=getattr(getattr(self.service, "_access_grant", None), "mode", "normal"),
+                intent=getattr(getattr(self.service, "_access_grant", None), "intent", "tool_call"),
+                operation=f"tool:{clean_name}",
+                repository=(
+                    f"{self.default_owner}/{self.default_repo}"
+                    if self.default_owner and self.default_repo
+                    else None
+                ),
+                decision="DENY",
+                reason=f"Tool '{clean_name}' is not in active allowed_tools scope.",
+                db=getattr(self.service, "_db", None),
+            )
+            return json.dumps(
+                {
+                    "error": (
+                        f"GitHub tool '{clean_name}' is not permitted in the current chat mode and scope."
+                    ),
+                    "error_code": "TOOL_BLOCKED",
+                },
+                ensure_ascii=False,
+            )
+
+        if isinstance(self.service, GitHubService):
+            from code_review.github.access_guard import (
+                GitHubAccessGuard,
+                expand_tools_to_service_ops,
+                get_active_grant,
+            )
+            from code_review.github.service import GitHubAccessDeniedError
+
+            active_grant = getattr(self.service, "_access_grant", None) or get_active_grant()
+            req_ops = expand_tools_to_service_ops([clean_name])
+            for req_op in sorted(req_ops) or [clean_name]:
+                try:
+                    GitHubAccessGuard.enforce_service_call(
+                        self.service,
+                        req_op,
+                        owner=self.default_owner,
+                        repo=self.default_repo,
+                        grant=active_grant,
+                        db=getattr(self.service, "_db", None),
+                    )
+                except GitHubAccessDeniedError as deny_err:
+                    return json.dumps(
+                        {
+                            "error": str(deny_err),
+                            "error_code": "TOOL_BLOCKED",
+                        },
+                        ensure_ascii=False,
+                    )
 
         if arguments is not None and not isinstance(arguments, dict):
             return json.dumps(

@@ -95,6 +95,51 @@ export function normalizeCodeLanguage(rawLang?: string): LanguageInfo {
   };
 }
 
+export interface CodeBlockLineAnalysis {
+  lineCount: number;
+  maxLineLength: number;
+  hasLongLines: boolean;
+  defaultWrapped: boolean;
+}
+
+/**
+ * Analyzes code block line lengths and language formatting semantics so
+ * structured code preserves indentation with isolated horizontal scroll by
+ * default while offering line wrapping on demand (and auto-wrapping prose-like
+ * plain text output that contains very long unwrapped lines).
+ */
+export function analyzeCodeBlockLines(langId: string, code: string): CodeBlockLineAnalysis {
+  const lines = code ? code.split("\n") : [];
+  let maxLineLength = 0;
+  let indentedLineCount = 0;
+  let asciiStructureCount = 0;
+
+  for (const line of lines) {
+    if (line.length > maxLineLength) {
+      maxLineLength = line.length;
+    }
+    if (/^[ \t]{2,}\S/.test(line)) {
+      indentedLineCount += 1;
+    }
+    if (/[├└│─┌┐┘┤┬┴┼]|^\s*\|.*\|/u.test(line)) {
+      asciiStructureCount += 1;
+    }
+  }
+
+  const hasLongLines = maxLineLength >= 44;
+  const isProseLikeLanguage = langId === "plaintext" || langId === "markdown";
+  const hasTabularOrAlignedFormatting = indentedLineCount >= 2 || asciiStructureCount >= 1;
+  const defaultWrapped =
+    isProseLikeLanguage && maxLineLength >= 96 && !hasTabularOrAlignedFormatting;
+
+  return {
+    lineCount: lines.length,
+    maxLineLength,
+    hasLongLines,
+    defaultWrapped,
+  };
+}
+
 export function sanitizeLinkHref(href?: string): string | undefined {
   if (!href) return undefined;
   const trimmed = href.trim();
@@ -544,4 +589,101 @@ export function extractCodeBlockFromHast(node?: HastLikeNode): {
   const language = langClass ? langClass.slice("language-".length) : "";
   const code = collectHastText(target).replace(/\n$/, "");
   return { language, code };
+}
+
+export interface TableAnalysis {
+  headers: string[];
+  columnCount: number;
+  maxCellLength: number;
+  totalHeaderLength: number;
+  useStackedMobileCards: boolean;
+}
+
+function collectElementsByTag(
+  node: HastLikeNode | undefined,
+  tagName: string,
+  acc: HastLikeNode[] = []
+): HastLikeNode[] {
+  if (!node) return acc;
+  if (node.type === "element" && node.tagName === tagName) {
+    acc.push(node);
+    return acc;
+  }
+  if (Array.isArray(node.children)) {
+    for (const child of node.children) {
+      collectElementsByTag(child, tagName, acc);
+    }
+  }
+  return acc;
+}
+
+/**
+ * Inspects a HAST `<table>` element to decide whether it fits comfortably as a
+ * compact fixed-width table on mobile or should transform into stacked cards.
+ */
+export function analyzeTableFromHast(node?: HastLikeNode): TableAnalysis {
+  if (!node) {
+    return {
+      headers: [],
+      columnCount: 0,
+      maxCellLength: 0,
+      totalHeaderLength: 0,
+      useStackedMobileCards: false,
+    };
+  }
+
+  const theadNodes = collectElementsByTag(node, "thead");
+  const headerCells = theadNodes.length > 0 ? collectElementsByTag(theadNodes[0], "th") : [];
+  const headers = headerCells.map((cell) => collectHastText(cell).replace(/\s+/g, " ").trim());
+
+  const tbodyNodes = collectElementsByTag(node, "tbody");
+  const bodyRows = tbodyNodes.length > 0 ? collectElementsByTag(tbodyNodes[0], "tr") : [];
+
+  let maxColsFromRows = 0;
+  let maxCellLength = 0;
+  let hasLongUnbrokenToken = false;
+
+  for (const h of headers) {
+    if (h.length > maxCellLength) maxCellLength = h.length;
+    if (/\S{18,}/.test(h)) hasLongUnbrokenToken = true;
+  }
+
+  for (const row of bodyRows) {
+    const cells = collectElementsByTag(row, "td");
+    if (cells.length > maxColsFromRows) maxColsFromRows = cells.length;
+    for (const cell of cells) {
+      const text = collectHastText(cell).replace(/\s+/g, " ").trim();
+      if (text.length > maxCellLength) maxCellLength = text.length;
+      if (/\S{22,}/.test(text)) hasLongUnbrokenToken = true;
+    }
+  }
+
+  const columnCount = Math.max(headers.length, maxColsFromRows);
+  const totalHeaderLength = headers.reduce((sum, h) => sum + h.length, 0);
+  const hasAnyHeaders = headers.some((h) => h.length > 0);
+
+  let useStackedMobileCards = false;
+  if (hasAnyHeaders) {
+    if (columnCount >= 3) {
+      // Keep ultra-tiny 3-col numeric tables (e.g. | # | A | B |) as tables, stack wider 3+ col tables
+      useStackedMobileCards = !(
+        columnCount === 3 &&
+        totalHeaderLength <= 12 &&
+        maxCellLength <= 8 &&
+        !hasLongUnbrokenToken
+      );
+    } else if (columnCount === 2) {
+      // Simple 2-column tables stay tables when they fit comfortably; long descriptions stack cleanly
+      useStackedMobileCards =
+        maxCellLength > 72 || totalHeaderLength > 28 || hasLongUnbrokenToken;
+    }
+  }
+
+  return {
+    headers,
+    columnCount,
+    maxCellLength,
+    totalHeaderLength,
+    useStackedMobileCards,
+  };
 }

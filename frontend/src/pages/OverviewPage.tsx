@@ -122,7 +122,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = React.memo(({
                   ? "GitHub disconnected • Connect"
                   : metrics.pull_requests_count !== null
                   ? `${metrics.open_pull_requests_count ?? 0} open for review`
-                  : "Unavailable"}
+                  : "View Pull Requests"}
               </div>
             </div>
 

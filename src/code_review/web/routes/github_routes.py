@@ -35,9 +35,21 @@ from code_review.db.models import (
     ReviewRecord,
     UserRecord,
 )
+from code_review.github.access_guard import (
+    REST_PR_REVIEW_OPERATIONS,
+    GitHubAccessGrant,
+    GitHubAccessGuard,
+    bump_user_disconnect_epoch,
+    record_github_access_audit,
+)
 from code_review.github.auth_resolver import ensure_github_tables, resolve_user_github_context
 from code_review.github.cache import get_github_cache
-from code_review.github.service import GitHubApiError, GitHubAuthError, GitHubService
+from code_review.github.service import (
+    GitHubAccessDeniedError,
+    GitHubApiError,
+    GitHubAuthError,
+    GitHubService,
+)
 from code_review.orchestrator import ReviewOrchestrator
 from code_review.web.auth import (
     ALGORITHM,
@@ -124,14 +136,31 @@ def process_github_webhook_pr_review(
     pr_title: str,
     head_sha: str | None,
     author: str,
+    *,
+    webhook_grant: GitHubAccessGrant | None = None,
 ) -> None:
+    repo_name = f"{owner}/{repo}"
+    if webhook_grant is None:
+        record_github_access_audit(
+            user_id=None,
+            conversation_id=None,
+            mode="webhook",
+            intent="unsolicited",
+            operation="webhook_pr_review",
+            repository=repo_name,
+            decision="DENY",
+            reason="Blocked background PR review execution without verified webhook grant.",
+        )
+        raise GitHubAccessDeniedError(
+            "Background GitHub PR review blocked without verified authorization grant."
+        )
+
     settings = get_settings()
     session_factory = get_session_factory()
     db = session_factory()
-    service = GitHubService(token=settings.github_token or None)
+    service = GitHubService(token=settings.github_token or None, access_grant=webhook_grant, db=db)
 
     try:
-        repo_name = f"{owner}/{repo}"
         pr_id = f"#{pull_number}"
         logger.info(
             "Starting background webhook review for %s %s (SHA: %s)",
@@ -351,6 +380,11 @@ async def handle_github_webhook(
             )
 
         if settings.github_auto_review:
+            webhook_grant = GitHubAccessGuard.authorize_webhook(
+                owner=owner,
+                repo=repo_name,
+                delivery_id=x_github_delivery,
+            )
             background_tasks.add_task(
                 process_github_webhook_pr_review,
                 owner=owner,
@@ -359,6 +393,7 @@ async def handle_github_webhook(
                 pr_title=pr_title,
                 head_sha=head_sha,
                 author=author,
+                webhook_grant=webhook_grant,
             )
 
         return {
@@ -584,7 +619,16 @@ def github_app_callback(
         )
         return RedirectResponse(url=f"{target_origin}/?github=error&reason=state_mismatch")
 
-    svc = GitHubService()
+    svc = GitHubService(
+        access_grant=GitHubAccessGuard.authorize_auth_flow(
+            user=target_user,
+            operation="create_installation_access_token",
+            reason="GitHub App installation callback setup.",
+            db=db,
+        ),
+        bound_user=target_user,
+        db=db,
+    )
     try:
         token_data = svc.create_installation_access_token(installation_id)
         access_token = token_data.get("token")
@@ -688,7 +732,6 @@ def github_callback(
     user: UserRecord | None = Depends(get_current_user_optional),
 ) -> RedirectResponse:
     settings = get_settings()
-    service = GitHubService()
     state_data = _decode_github_state(state)
     intent = state_data.get("intent", "connect") if state_data else "connect"
     target_origin = (
@@ -701,6 +744,17 @@ def github_callback(
     target_user = user
     if not target_user and state_data and state_data.get("user_id"):
         target_user = db.query(UserRecord).filter(UserRecord.id == state_data["user_id"]).first()
+
+    service = GitHubService(
+        access_grant=GitHubAccessGuard.authorize_auth_flow(
+            user=target_user,
+            operation="exchange_code",
+            reason=f"GitHub OAuth callback ({intent}).",
+            db=db,
+        ),
+        bound_user=target_user,
+        db=db,
+    )
 
     if state and not state_data:
         logger.warning("Rejected GitHub OAuth callback due to invalid state parameter.")
@@ -783,7 +837,16 @@ def connect_github_token(
             detail="Authentication required to connect GitHub.",
         )
 
-    service = GitHubService()
+    service = GitHubService(
+        access_grant=GitHubAccessGuard.authorize_auth_flow(
+            user=user,
+            operation="get_user_profile",
+            reason="Validate user-submitted GitHub Personal Access Token.",
+            db=db,
+        ),
+        bound_user=user,
+        db=db,
+    )
     try:
         clean_token = payload.token.strip()
         gh_profile = service.get_user_profile(clean_token)
@@ -838,7 +901,19 @@ def disconnect_github(
         user.github_token = None
         user.github_username = None
         db.commit()
+        bump_user_disconnect_epoch(user.id)
         get_github_cache().invalidate_scope(f"user:{user.id}")
+        record_github_access_audit(
+            user_id=user.id,
+            conversation_id=None,
+            mode="rest_explicit",
+            intent="disconnect",
+            operation="disconnect_github",
+            repository=None,
+            decision="ALLOW",
+            reason="User disconnected GitHub integration; subsequent access blocked.",
+            db=db,
+        )
         logger.info("Disconnected GitHub account for user %s", user.id)
 
     return GitHubStatusResponse(
@@ -885,11 +960,34 @@ def list_repositories(
 ) -> list[dict[str, Any]]:
     resolved = resolve_user_github_context(db, user)
     if not resolved.connected or not resolved.token:
+        record_github_access_audit(
+            user_id=user.id,
+            conversation_id=None,
+            mode="rest_explicit",
+            intent="list_repositories",
+            operation="list_repositories",
+            decision="DENY",
+            reason=f"GitHub not connected (status={resolved.connection_status}).",
+            db=db,
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="GitHub is not connected. Please connect your GitHub account.",
         )
-    service = GitHubService(resolved.token, cache_scope=resolved.cache_scope)
+    grant = GitHubAccessGuard.authorize_explicit_rest_operation(
+        db=db,
+        user=user,
+        operation="list_repositories",
+        allowed_operations={"list_repositories", "list_installation_repositories"},
+        reason="User explicitly requested repository list.",
+    )
+    service = GitHubService(
+        resolved.token,
+        cache_scope=resolved.cache_scope,
+        access_grant=grant,
+        bound_user=user,
+        db=db,
+    )
     try:
         return service.list_repositories()
     except GitHubAuthError as exc:
@@ -911,7 +1009,17 @@ def list_pull_requests(
     user: UserRecord = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
     token = _get_active_token(user, db)
-    service = GitHubService(token, cache_scope=f"user:{user.id}")
+    grant = GitHubAccessGuard.authorize_explicit_rest_operation(
+        db=db,
+        user=user,
+        operation="list_pull_requests",
+        allowed_operations={"list_pull_requests"},
+        repository=f"{owner}/{repo}",
+        reason="User explicitly requested pull requests for repository.",
+    )
+    service = GitHubService(
+        token, cache_scope=f"user:{user.id}", access_grant=grant, bound_user=user, db=db
+    )
     try:
         return service.list_pull_requests(owner, repo)
     except HTTPException:
@@ -933,7 +1041,17 @@ def get_pull_request_diff(
     user: UserRecord = Depends(get_current_user),
 ) -> dict[str, Any]:
     token = _get_active_token(user, db)
-    service = GitHubService(token, cache_scope=f"user:{user.id}")
+    grant = GitHubAccessGuard.authorize_explicit_rest_operation(
+        db=db,
+        user=user,
+        operation="get_pull_request_diff",
+        allowed_operations={"get_pull_request_diff"},
+        repository=f"{owner}/{repo}",
+        reason=f"User explicitly requested diff for PR #{number}.",
+    )
+    service = GitHubService(
+        token, cache_scope=f"user:{user.id}", access_grant=grant, bound_user=user, db=db
+    )
     try:
         return service.get_pull_request_diff(owner, repo, number)
     except HTTPException:
@@ -1054,7 +1172,16 @@ def _run_user_pr_review_job(
 
         if post_to_github:
             try:
-                service = GitHubService(token)
+                job_user = db.query(UserRecord).filter(UserRecord.id == user_id).first()
+                post_grant = GitHubAccessGuard.authorize_explicit_rest_operation(
+                    db=db,
+                    user=job_user,
+                    operation="post_pull_request_review",
+                    allowed_operations={"post_pull_request_review"},
+                    repository=repo_name,
+                    reason=f"Background auto-post for user PR #{number} review.",
+                )
+                service = GitHubService(token, access_grant=post_grant, bound_user=job_user, db=db)
                 summary_md, inline_comments, verdict_action = service.format_pr_review(
                     findings=result.findings,
                     owner=owner,
@@ -1107,7 +1234,17 @@ def review_pull_request(
 ) -> dict[str, str]:
     token = _get_active_token(user, db)
     user_id = user.id
-    service = GitHubService(token, cache_scope=f"user:{user.id}")
+    grant = GitHubAccessGuard.authorize_explicit_rest_operation(
+        db=db,
+        user=user,
+        operation="get_pull_request_diff",
+        allowed_operations=REST_PR_REVIEW_OPERATIONS,
+        repository=f"{owner}/{repo}",
+        reason=f"User explicitly triggered review for PR #{number}.",
+    )
+    service = GitHubService(
+        token, cache_scope=f"user:{user.id}", access_grant=grant, bound_user=user, db=db
+    )
 
     try:
         diff_info = service.get_pull_request_diff(owner, repo, number)
@@ -1186,7 +1323,17 @@ def publish_review_to_github(
     user: UserRecord = Depends(get_current_user),
 ) -> PostReviewResponse:
     token = _get_active_token(user, db)
-    service = GitHubService(token, cache_scope=f"user:{user.id}")
+    grant = GitHubAccessGuard.authorize_explicit_rest_operation(
+        db=db,
+        user=user,
+        operation="post_pull_request_review",
+        allowed_operations=REST_PR_REVIEW_OPERATIONS,
+        repository=f"{owner}/{repo}",
+        reason=f"User explicitly published review to PR #{number}.",
+    )
+    service = GitHubService(
+        token, cache_scope=f"user:{user.id}", access_grant=grant, bound_user=user, db=db
+    )
     settings = get_settings()
 
     review: ReviewRecord | None = None
@@ -1336,8 +1483,22 @@ def set_conversation_repo_context(
 
     owner, repo = payload.repository_full_name.split("/", 1)
     resolved = resolve_user_github_context(db, user)
+    grant = GitHubAccessGuard.authorize_explicit_rest_operation(
+        db=db,
+        user=user,
+        operation="get_repository_details",
+        allowed_operations={"get_repository_details"},
+        repository=f"{owner}/{repo}",
+        conversation_id=conversation_id,
+        require_connected=bool(resolved.connected),
+        reason="User explicitly selected repository context for conversation.",
+    )
     svc = GitHubService(
-        resolved.token if resolved.connected else None, cache_scope=resolved.cache_scope
+        resolved.token if resolved.connected else None,
+        cache_scope=resolved.cache_scope,
+        access_grant=grant,
+        bound_user=user,
+        db=db,
     )
     try:
         details = svc.get_repository_details(owner, repo)

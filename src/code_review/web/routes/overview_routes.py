@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session, load_only
 
 from code_review.db.database import get_db
 from code_review.db.models import AgentConfigRecord, ReviewRecord, UserRecord
+from code_review.github.access_guard import (
+    REST_PULL_REQUEST_LIST_OPERATIONS,
+    GitHubAccessGuard,
+)
+from code_review.github.auth_resolver import resolve_user_github_context
 from code_review.github.service import GitHubService
 from code_review.web.auth import get_current_user
 from code_review.web.schemas import OverviewMetricsResponse, ReviewSummaryResponse
@@ -18,6 +23,7 @@ router = APIRouter(prefix="/overview", tags=["Overview"])
 
 @router.get("/metrics", response_model=OverviewMetricsResponse)
 def get_overview_metrics(
+    include_github: bool = Query(default=False),
     db: Session = Depends(get_db),
     user: UserRecord = Depends(get_current_user),
 ) -> OverviewMetricsResponse:
@@ -39,13 +45,28 @@ def get_overview_metrics(
     )
     total_agents_count = db.query(AgentConfigRecord).count()
 
-    is_github_connected = bool(user.github_connected and user.github_token)
+    resolved_auth = resolve_user_github_context(db, user)
+    is_github_connected = bool(resolved_auth.connected)
     pull_requests_count: int | None = None
     open_pull_requests_count: int | None = None
 
-    if is_github_connected:
+    # Never crawl connected GitHub repositories automatically during idle/overview metrics polling
+    if include_github and is_github_connected and resolved_auth.token:
         try:
-            service = GitHubService(user.github_token)
+            grant = GitHubAccessGuard.authorize_explicit_rest_operation(
+                db=db,
+                user=user,
+                operation="list_pull_requests",
+                allowed_operations=REST_PULL_REQUEST_LIST_OPERATIONS,
+                reason="Explicit overview GitHub metrics refresh requested.",
+            )
+            service = GitHubService(
+                resolved_auth.token,
+                cache_scope=resolved_auth.cache_scope,
+                access_grant=grant,
+                bound_user=user,
+                db=db,
+            )
             repos = service.list_repositories()
             total_prs = 0
             open_prs = 0

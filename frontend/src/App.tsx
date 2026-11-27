@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type {
   AgentConfig,
   Attachment,
+  ChatMode,
   Conversation,
   ConversationRepoContext,
   GenerationState,
@@ -165,6 +166,7 @@ export const App: React.FC = () => {
   const [activeRepoContext, setActiveRepoContext] = useState<ConversationRepoContext | null>(null);
   const [liveStatusDetail, setLiveStatusDetail] = useState<string | null>(null);
   const lastGitHubPromptRef = useRef<string>("");
+  const conversationModesRef = useRef<Map<string, ChatMode>>(new Map());
 
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
@@ -462,13 +464,17 @@ export const App: React.FC = () => {
     void fetchOverviewMetrics();
     githubApi.getStatus().then(setGithubStatus).catch(() => setGithubStatus(null));
 
-    if (currentUser.github_connected) {
-      void fetchPullRequests();
-    } else {
+    if (!currentUser.github_connected) {
       setPullRequests([]);
       setPrsError(null);
     }
   };
+
+  useEffect(() => {
+    if (currentView === "prs" && user?.github_connected && pullRequests.length === 0 && !isPrsLoading) {
+      void fetchPullRequests();
+    }
+  }, [currentView, user?.id, user?.github_connected]);
 
   const checkAuthAndInitialize = async () => {
     setIsAuthChecking(true);
@@ -546,6 +552,8 @@ export const App: React.FC = () => {
     if (!activeConversationId) {
       setActiveConversation(null);
       setActiveRepoContext(null);
+      setGithubMode(false);
+      setLiveStatusDetail(null);
       setIsLoadingActiveConversation(false);
       return;
     }
@@ -565,9 +573,6 @@ export const App: React.FC = () => {
       .then((ctx) => {
         if (isCurrent && activeConvIdRef.current === requestedId) {
           setActiveRepoContext(ctx);
-          if (ctx) {
-            setGithubMode(true);
-          }
         }
       })
       .catch(() => {
@@ -580,6 +585,12 @@ export const App: React.FC = () => {
       .then((conv) => {
 
         if (isCurrent && activeConvIdRef.current === requestedId) {
+          const convMode: ChatMode = conv.mode === "github" ? "github" : "normal";
+          conversationModesRef.current.set(requestedId, convMode);
+          setGithubMode(convMode === "github");
+          if (!activeStreamControllersRef.current.has(requestedId)) {
+            setLiveStatusDetail(null);
+          }
           const streamedContent = streamedContentRef.current.get(requestedId);
           if (streamedContent && activeStreamControllersRef.current.has(requestedId)) {
             const assistantMessage: Message = {
@@ -592,10 +603,11 @@ export const App: React.FC = () => {
             };
             setActiveConversation({
               ...conv,
+              mode: convMode,
               messages: [...(conv.messages || []), assistantMessage],
             });
           } else {
-            setActiveConversation(conv);
+            setActiveConversation({ ...conv, mode: convMode });
           }
         }
       })
@@ -650,12 +662,16 @@ export const App: React.FC = () => {
     selectedMessageId?: string
   ) => {
     if (isSendingMessage && !startNewConversation) return;
-    if (githubMode) {
+    const requestMode: ChatMode = explicitGithubRepo || githubMode ? "github" : "normal";
+    if (requestMode === "github") {
       lastGitHubPromptRef.current = content;
     }
     setLiveStatusDetail(null);
 
     const targetConvId = startNewConversation ? undefined : activeConversationId;
+    if (targetConvId) {
+      conversationModesRef.current.set(targetConvId, requestMode);
+    }
     const streamKey = targetConvId || `pending-${Date.now()}`;
     let streamConversationId = targetConvId;
     const selectionVersionAtStart = activeSelectionVersionRef.current;
@@ -695,6 +711,7 @@ export const App: React.FC = () => {
         {
           id: streamKey,
           title: title || "New Conversation",
+          mode: requestMode,
           created_at: now,
           updated_at: now,
           message_count: 1,
@@ -707,6 +724,7 @@ export const App: React.FC = () => {
       if (prev) {
         return {
           ...prev,
+          mode: requestMode,
           messages: [...(prev.messages || []), optimisticUserMsg, optimisticAsstMsg],
           attachments: [
             ...(prev.attachments || []),
@@ -719,6 +737,7 @@ export const App: React.FC = () => {
       return {
         id: streamKey,
         title: content.slice(0, 50),
+        mode: requestMode,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         messages: [optimisticUserMsg, optimisticAsstMsg],
@@ -758,8 +777,11 @@ export const App: React.FC = () => {
           provider: targetProvider,
           model: effectiveModel,
           attachmentIds,
-          githubMode,
-          githubRepo: explicitGithubRepo || activeRepoContext?.repository_full_name,
+          mode: requestMode,
+          githubMode: requestMode === "github",
+          githubRepo:
+            explicitGithubRepo ||
+            (requestMode === "github" ? activeRepoContext?.repository_full_name : undefined),
           selectedText,
           selectedMessageId,
         },
@@ -771,13 +793,16 @@ export const App: React.FC = () => {
             }
           },
           onRepoMeta: (meta) => {
-            setActiveRepoContext((prev) => ({
-              conversation_id: streamConversationId || targetConvId || prev?.conversation_id || "",
-              repository_full_name: meta.repository,
-              default_branch: meta.branch,
-              selected_branch: meta.branch,
-              last_inspected_commit: meta.commit_sha || null,
-            }));
+            if (activeConvIdRef.current !== (streamConversationId || targetConvId || undefined)) return;
+            if (requestMode === "github") {
+              setActiveRepoContext((prev) => ({
+                conversation_id: streamConversationId || targetConvId || prev?.conversation_id || "",
+                repository_full_name: meta.repository,
+                default_branch: meta.branch,
+                selected_branch: meta.branch,
+                last_inspected_commit: meta.commit_sha || null,
+              }));
+            }
             setActiveConversation((prev) => {
               if (!prev) return prev;
               return {
@@ -801,6 +826,8 @@ export const App: React.FC = () => {
           },
           onInit: (metadata) => {
             streamConversationId = metadata.id;
+            const resolvedMode: ChatMode = metadata.mode ?? requestMode;
+            conversationModesRef.current.set(metadata.id, resolvedMode);
             activeStreamControllersRef.current.delete(streamKey);
             activeStreamControllersRef.current.set(metadata.id, abortController);
             const pendingContent = streamedContentRef.current.get(streamKey);
@@ -835,6 +862,7 @@ export const App: React.FC = () => {
                     return {
                       id: metadata.id,
                       title: metadata.title,
+                      mode: resolvedMode,
                       created_at: new Date().toISOString(),
                       updated_at: new Date().toISOString(),
                       messages: [
@@ -847,6 +875,7 @@ export const App: React.FC = () => {
                     ...prev,
                     id: metadata.id,
                     title: metadata.title,
+                    mode: resolvedMode,
                     messages: (prev.messages || []).map((m) => ({
                       ...m,
                       id: m.id === userTempId && metadata.user_message_id ? metadata.user_message_id : m.id,
@@ -860,6 +889,7 @@ export const App: React.FC = () => {
                 const resolvedConversation = {
                   id: metadata.id,
                   title: metadata.title,
+                  mode: resolvedMode,
                   created_at: pendingConversation?.created_at || new Date().toISOString(),
                   updated_at: new Date().toISOString(),
                   message_count: pendingConversation?.message_count || 1,
@@ -1118,6 +1148,7 @@ export const App: React.FC = () => {
       if (streamConversationId) streamingMessageIdsRef.current.delete(streamConversationId);
       if (activeConvIdRef.current === (streamConversationId || targetConvId || undefined)) {
         setIsSendingMessage(false);
+        setLiveStatusDetail(null);
       }
     }
   };
@@ -1161,6 +1192,9 @@ export const App: React.FC = () => {
       activeConversation?.messages?.filter((m) => m.role === "assistant").pop()?.id;
     if (!targetMsgId) return;
 
+    const requestMode: ChatMode = githubMode ? "github" : "normal";
+    setLiveStatusDetail(null);
+
     const isDiffReview = Boolean(diffContext && diffContext.trim().length > 0);
     setGenerationType(isDiffReview ? "diff" : "chat");
     setGenerationState("submitting");
@@ -1200,8 +1234,9 @@ export const App: React.FC = () => {
           provider: targetProvider,
           model: effectiveModel,
           diffContext,
-          githubMode,
-          githubRepo: activeRepoContext?.repository_full_name,
+          mode: requestMode,
+          githubMode: requestMode === "github",
+          githubRepo: requestMode === "github" ? activeRepoContext?.repository_full_name : undefined,
         },
         {
           signal: abortController.signal,
@@ -1211,13 +1246,15 @@ export const App: React.FC = () => {
             }
           },
           onRepoMeta: (meta) => {
-            setActiveRepoContext(() => ({
-              conversation_id: activeConversationId,
-              repository_full_name: meta.repository,
-              default_branch: meta.branch,
-              selected_branch: meta.branch,
-              last_inspected_commit: meta.commit_sha || null,
-            }));
+            if (requestMode === "github") {
+              setActiveRepoContext(() => ({
+                conversation_id: activeConversationId,
+                repository_full_name: meta.repository,
+                default_branch: meta.branch,
+                selected_branch: meta.branch,
+                last_inspected_commit: meta.commit_sha || null,
+              }));
+            }
             setActiveConversation((prev) => {
               if (!prev) return prev;
               return {
@@ -1253,6 +1290,7 @@ export const App: React.FC = () => {
             });
           },
           onDone: (data) => {
+            setLiveStatusDetail(null);
             setGenerationState("completed");
             setWaveState("idle");
             setTimeout(() => {
@@ -1277,6 +1315,7 @@ export const App: React.FC = () => {
             });
           },
           onError: (err) => {
+            setLiveStatusDetail(null);
             setGenerationState("error");
             setWaveState("error");
             setTimeout(() => {
@@ -1333,6 +1372,7 @@ export const App: React.FC = () => {
         });
       }
     } finally {
+      setLiveStatusDetail(null);
       setIsSendingMessage(false);
       abortControllerRef.current = null;
     }
@@ -1391,6 +1431,8 @@ export const App: React.FC = () => {
       messages: newMessages,
     });
 
+    const requestMode: ChatMode = githubMode ? "github" : "normal";
+    setLiveStatusDetail(null);
     setIsSendingMessage(true);
     setWaveState("receiving");
     setGenerationType(diffContext ? "diff" : "chat");
@@ -1420,8 +1462,9 @@ export const App: React.FC = () => {
           provider: targetProvider,
           model: effectiveModel,
           attachmentIds: effectiveAttachmentIds,
-          githubMode,
-          githubRepo: activeRepoContext?.repository_full_name,
+          mode: requestMode,
+          githubMode: requestMode === "github",
+          githubRepo: requestMode === "github" ? activeRepoContext?.repository_full_name : undefined,
         },
         {
           signal: abortController.signal,
@@ -1431,13 +1474,15 @@ export const App: React.FC = () => {
             }
           },
           onRepoMeta: (meta) => {
-            setActiveRepoContext(() => ({
-              conversation_id: targetConvId,
-              repository_full_name: meta.repository,
-              default_branch: meta.branch,
-              selected_branch: meta.branch,
-              last_inspected_commit: meta.commit_sha || null,
-            }));
+            if (requestMode === "github") {
+              setActiveRepoContext(() => ({
+                conversation_id: targetConvId,
+                repository_full_name: meta.repository,
+                default_branch: meta.branch,
+                selected_branch: meta.branch,
+                last_inspected_commit: meta.commit_sha || null,
+              }));
+            }
             setActiveConversation((prev) => {
               if (!prev || prev.id !== targetConvId) return prev;
               return {
@@ -1491,6 +1536,7 @@ export const App: React.FC = () => {
             });
           },
           onDone: (data) => {
+            setLiveStatusDetail(null);
             setGenerationState("completed");
             setWaveState("idle");
             setTimeout(() => {
@@ -1522,6 +1568,7 @@ export const App: React.FC = () => {
             });
           },
           onError: (err) => {
+            setLiveStatusDetail(null);
             setGenerationState("error");
             setWaveState("error");
             setTimeout(() => {
@@ -1567,6 +1614,7 @@ export const App: React.FC = () => {
         throw err;
       }
     } finally {
+      setLiveStatusDetail(null);
       setIsSendingMessage(false);
       abortControllerRef.current = null;
     }
@@ -1612,6 +1660,9 @@ export const App: React.FC = () => {
     setWaveState("idle");
     setIsMobileNavOpen(false);
     setActiveConversation(null);
+    setActiveRepoContext(null);
+    setGithubMode(false);
+    setLiveStatusDetail(null);
     setIsLoadingActiveConversation(false);
     setGreetingSeed((prev) => prev + 1);
     navigateTo("chat", undefined);
@@ -1631,6 +1682,10 @@ export const App: React.FC = () => {
         setGenerationState("idle");
         setWaveState("idle");
       }
+      const cachedMode: ChatMode = conversationModesRef.current.get(id) ?? "normal";
+      setGithubMode(cachedMode === "github");
+      setActiveRepoContext(null);
+      setLiveStatusDetail(null);
       setIsLoadingActiveConversation(true);
       setActiveConversation(null);
       navigateTo("chat", id);
@@ -2134,7 +2189,7 @@ export const App: React.FC = () => {
         />
 
         <main
-          className={`flex-1 flex flex-col ${
+          className={`flex-1 flex flex-col min-w-0 ${
             isSidebarCollapsed ? "md:pl-0" : "md:pl-[260px]"
           } transition-[padding] duration-300 w-full min-h-0 relative z-10 overflow-hidden`}
         >
@@ -2188,11 +2243,11 @@ export const App: React.FC = () => {
             </div>
           )}
 
-          <div className="flex-1 flex flex-col w-full min-h-0 relative">
+          <div className="flex-1 flex flex-col w-full min-w-0 min-h-0 relative">
             <div
               className={
                 currentView === "chat"
-                  ? "flex-1 flex flex-col w-full h-full min-h-0 overflow-hidden"
+                  ? "flex-1 flex flex-col w-full min-w-0 h-full min-h-0 overflow-hidden"
                   : "hidden"
               }
             >
@@ -2252,7 +2307,21 @@ export const App: React.FC = () => {
                 githubMode={githubMode}
                 onToggleGitHubMode={(next) => {
                   const target = typeof next === "boolean" ? next : !githubMode;
+                  const nextMode: ChatMode = target ? "github" : "normal";
                   setGithubMode(target);
+                  if (!target) {
+                    setLiveStatusDetail(null);
+                  }
+                  if (activeConversationId) {
+                    conversationModesRef.current.set(activeConversationId, nextMode);
+                    setActiveConversation((prev) =>
+                      prev && prev.id === activeConversationId ? { ...prev, mode: nextMode } : prev
+                    );
+                    setConversations((prev) =>
+                      prev.map((c) => (c.id === activeConversationId ? { ...c, mode: nextMode } : c))
+                    );
+                    conversationApi.update(activeConversationId, { mode: nextMode }).catch(() => {});
+                  }
                   if (target) {
                     githubApi.getStatus().then(setGithubStatus).catch(() => {});
                   }
@@ -2367,8 +2436,13 @@ export const App: React.FC = () => {
 
                     }
                     if (updatedUser.github_connected) {
-                      fetchPullRequests();
                       fetchOverviewMetrics();
+                    } else {
+                      setPullRequests([]);
+                      setPrsError(null);
+                      setGithubStatus((prev) =>
+                        prev ? { ...prev, connected: false, connection_status: "disconnected" } : null
+                      );
                     }
                   }}
                   onAccountDeleted={handleAccountDeleted}
