@@ -566,199 +566,211 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
           })}
         </nav>
 
-        {/* Independent Scrolling Split Container: Pinned + Recent Conversations + Recent Reviews */}
-        <div className="flex-1 min-h-0 flex flex-col overflow-hidden px-3 py-2.5 gap-1">
-          {/* Independent Section 1: Conversations */}
-          <section
-            aria-label="Conversations"
-            className="flex-1 min-h-0 flex flex-col overflow-hidden"
+        {/* Fixed GitHub PR Section */}
+        {onOpenGitHub && (
+          <div
+            data-testid="sidebar-github-pr-section"
+            className="px-3 py-2 border-b border-white/10 flex-shrink-0 bg-black/40"
           >
-            <div className="flex-shrink-0 space-y-2 pb-1.5">
-              <div className="flex items-center p-0.5 bg-white/[0.04] rounded-lg border border-white/10 text-xs sm:text-[13px]">
-                <button
-                  type="button"
-                  onClick={() => setShowArchived(false)}
-                  className={`flex-1 py-1 px-2 rounded-md transition-all text-center font-medium cursor-pointer ${
-                    !showArchived
-                      ? "bg-white/15 text-white shadow-sm"
-                      : "text-neutral-400 hover:text-white"
-                  }`}
-                >
-                  Active ({activeConversations.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowArchived(true)}
-                  className={`flex-1 py-1 px-2 rounded-md transition-all text-center font-medium flex items-center justify-center gap-1.5 cursor-pointer ${
-                    showArchived
-                      ? "bg-white/15 text-white shadow-sm"
-                      : "text-neutral-400 hover:text-white"
-                  }`}
-                >
-                  <svg
-                    className="w-3.5 h-3.5"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <polyline points="21 8 21 21 3 21 3 8" />
-                    <rect x="1" y="3" width="22" height="5" />
-                    <line x1="10" y1="12" x2="14" y2="12" />
-                  </svg>
-                  <span>Archived</span>
-                  {archivedConversations.length > 0 && (
-                    <span className="text-[10px] px-1.5 py-0.2 bg-white/20 rounded-full font-mono">
-                      {archivedConversations.length}
-                    </span>
-                  )}
-                </button>
+            <button
+              type="button"
+              onClick={() => {
+                onOpenGitHub();
+                if (onCloseMobile) onCloseMobile();
+              }}
+              className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-white/[0.03] hover:bg-white/[0.08] active:bg-white/15 border border-white/10 text-xs text-neutral-300 hover:text-white transition-colors cursor-pointer"
+              title="Open GitHub Pull Requests"
+            >
+              <div className="flex items-center gap-2">
+                <svg className="w-4 h-4 text-neutral-400" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
+                </svg>
+                <span className="font-medium">GitHub PRs</span>
               </div>
+              <span className="text-[10px] text-neutral-500 font-mono">Review →</span>
+            </button>
+          </div>
+        )}
 
-              <div className="flex items-center justify-between px-2">
-                <span className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider font-mono">
-                  {showArchived ? "Archived Chats" : "Recent Conversations"}
-                </span>
-                <span className="text-[10px] text-neutral-500 font-mono">
-                  {showArchived ? archivedConversations.length : recentConversations.length}
-                </span>
-              </div>
+        {/* Single Scrollable History Wrapper (Pinned + Conversations + Reviews scroll together) */}
+        <div
+          data-testid="sidebar-history-scroll"
+          className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-3 py-2.5 space-y-4"
+          aria-label="History and Reviews"
+        >
+          {/* Active / Archived Toggle */}
+          <div className="space-y-2">
+            <div className="flex items-center p-0.5 bg-white/[0.04] rounded-lg border border-white/10 text-xs sm:text-[13px]">
+              <button
+                type="button"
+                onClick={() => setShowArchived(false)}
+                className={`flex-1 py-1 px-2 rounded-md transition-all text-center font-medium cursor-pointer ${
+                  !showArchived
+                    ? "bg-white/15 text-white shadow-sm"
+                    : "text-neutral-400 hover:text-white"
+                }`}
+              >
+                Active ({activeConversations.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowArchived(true)}
+                className={`flex-1 py-1 px-2 rounded-md transition-all text-center font-medium flex items-center justify-center gap-1.5 cursor-pointer ${
+                  showArchived
+                    ? "bg-white/15 text-white shadow-sm"
+                    : "text-neutral-400 hover:text-white"
+                }`}
+              >
+                <svg
+                  className="w-3.5 h-3.5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="21 8 21 21 3 21 3 8" />
+                  <rect x="1" y="3" width="22" height="5" />
+                  <line x1="10" y1="12" x2="14" y2="12" />
+                </svg>
+                <span>Archived</span>
+                {archivedConversations.length > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.2 bg-white/20 rounded-full font-mono">
+                    {archivedConversations.length}
+                  </span>
+                )}
+              </button>
             </div>
 
-            {/* Pinned conversations: fixed (non-scrolling), capped height with own overflow */}
-            {!showArchived && pinnedConversations.length > 0 && (
-              <div
-                data-testid="sidebar-pinned-conversations"
-                className="flex-shrink-0 max-h-[30vh] overflow-y-auto overscroll-y-contain pb-2 mb-1 border-b border-white/[0.06]"
-              >
-                <div className="flex items-center gap-1.5 px-2.5 mb-1 text-[10px] font-semibold text-neutral-400 uppercase tracking-wider font-mono">
-                  <svg
-                    className="w-3 h-3 text-neutral-400"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
-                    <line x1="12" y1="17" x2="12" y2="22" />
-                    <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.89A4 4 0 0 1 14 9V5a2 2 0 0 0-2-2h0a2 2 0 0 0-2 2v4a4 4 0 0 1-2.11 3.56l-1.78.89A2 2 0 0 0 5 15.24Z" />
-                  </svg>
-                  <span>Pinned</span>
-                  <span className="ml-auto text-[10px] text-neutral-600 font-mono">
-                    {pinnedConversations.length}
-                  </span>
-                </div>
-                <div className="space-y-0.5">
-                  {pinnedConversations.map(renderConversationRow)}
-                </div>
+            <div className="flex items-center justify-between px-2">
+              <span className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider font-mono">
+                {showArchived ? "Archived Chats" : "Recent Conversations"}
+              </span>
+              <span className="text-[10px] text-neutral-500 font-mono">
+                {showArchived ? archivedConversations.length : recentConversations.length}
+              </span>
+            </div>
+          </div>
+
+          {/* Conversations Content */}
+          {showArchived ? (
+            archivedConversations.length === 0 ? (
+              <div className="px-3 py-6 text-center rounded-lg border border-dashed border-white/10 bg-white/[0.02]">
+                <p className="text-xs text-neutral-400">No archived chats</p>
+                <p className="text-[10px] text-neutral-500 mt-1">
+                  Conversations you archive will appear here.
+                </p>
               </div>
-            )}
-
-            <div
-              data-testid="sidebar-conversations-scroll"
-              className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain pr-0.5 space-y-3"
-            >
-              {showArchived ? (
-                archivedConversations.length === 0 ? (
-                  <div className="px-3 py-6 text-center rounded-lg border border-dashed border-white/10 bg-white/[0.02]">
-                    <p className="text-xs text-neutral-400">No archived chats</p>
-                    <p className="text-[10px] text-neutral-500 mt-1">
-                      Conversations you archive will appear here.
-                    </p>
+            ) : (
+              <div className="space-y-0.5">
+                {archivedConversations.map(renderConversationRow)}
+              </div>
+            )
+          ) : (
+            <div className="space-y-3">
+              {/* Pinned Conversations - scroll together naturally */}
+              {pinnedConversations.length > 0 && (
+                <div data-testid="sidebar-pinned-section">
+                  <div className="flex items-center gap-1.5 px-2.5 mb-1 text-[10px] font-semibold text-neutral-400 uppercase tracking-wider font-mono">
+                    <svg
+                      className="w-3 h-3 text-neutral-400"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <line x1="12" y1="17" x2="12" y2="22" />
+                      <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.89A4 4 0 0 1 14 9V5a2 2 0 0 0-2-2h0a2 2 0 0 0-2 2v4a4 4 0 0 1-2.11 3.56l-1.78.89A2 2 0 0 0 5 15.24Z" />
+                    </svg>
+                    <span>Pinned</span>
+                    <span className="ml-auto text-[10px] text-neutral-600 font-mono">
+                      {pinnedConversations.length}
+                    </span>
                   </div>
-                ) : (
                   <div className="space-y-0.5">
-                    {archivedConversations.map(renderConversationRow)}
-                  </div>
-                )
-              ) : (
-                <div className="space-y-3">
-                  {Object.keys(groupedSections).length > 0 && (
-                    <div className="space-y-2.5">
-                      {Object.entries(groupedSections).map(([secName, secConvs]) => {
-                        const isSecCollapsed = !!collapsedSections[secName];
-                        return (
-                          <div key={secName} className="space-y-1">
-                            <button
-                              type="button"
-                              onClick={() => toggleSectionCollapse(secName)}
-                              className="w-full flex items-center justify-between px-2.5 py-1 text-[10px] font-semibold text-neutral-400 uppercase tracking-wider font-mono hover:text-neutral-200 transition-colors"
-                            >
-                              <div className="flex items-center gap-1.5 truncate">
-                                <svg
-                                  className={`w-3 h-3 text-neutral-500 transition-transform ${
-                                    isSecCollapsed ? "-rotate-90" : "rotate-0"
-                                  }`}
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                >
-                                  <polyline points="6 9 12 15 18 9" />
-                                </svg>
-                                <span className="truncate">{secName}</span>
-                              </div>
-                              <span className="text-[10px] text-neutral-600 font-mono">
-                                {secConvs.length}
-                              </span>
-                            </button>
-                            {!isSecCollapsed && (
-                              <div className="space-y-0.5 pl-1.5 border-l border-white/5 ml-2.5">
-                                {secConvs.map(renderConversationRow)}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  <div className="space-y-0.5">
-                    {recentConversations.length === 0 &&
-                    pinnedConversations.length === 0 &&
-                    Object.keys(groupedSections).length === 0 ? (
-                      isLoadingConversations ? (
-                        <div className="space-y-2 px-2 py-2" data-testid="conversations-loading-skeleton">
-                          <div className="h-7 rounded-lg bg-white/[0.04] animate-pulse" />
-                          <div className="h-7 rounded-lg bg-white/[0.03] animate-pulse" />
-                          <div className="h-7 rounded-lg bg-white/[0.02] animate-pulse" />
-                        </div>
-                      ) : (
-                        <div className="px-3 py-2 text-[11px] text-neutral-600 italic">
-                          No previous conversations
-                        </div>
-                      )
-                    ) : (
-                      recentConversations.map(renderConversationRow)
-                    )}
+                    {pinnedConversations.map(renderConversationRow)}
                   </div>
                 </div>
               )}
-            </div>
-          </section>
 
-          {/* Visual separator with increased spacing */}
-          {reviews.length > 0 && (
-            <div className="flex-shrink-0 h-px bg-white/10 my-2" aria-hidden="true" />
+              {/* Grouped Folders/Sections */}
+              {Object.keys(groupedSections).length > 0 && (
+                <div className="space-y-2.5">
+                  {Object.entries(groupedSections).map(([secName, secConvs]) => {
+                    const isSecCollapsed = !!collapsedSections[secName];
+                    return (
+                      <div key={secName} className="space-y-1">
+                        <button
+                          type="button"
+                          onClick={() => toggleSectionCollapse(secName)}
+                          className="w-full flex items-center justify-between px-2.5 py-1 text-[10px] font-semibold text-neutral-400 uppercase tracking-wider font-mono hover:text-neutral-200 transition-colors"
+                        >
+                          <div className="flex items-center gap-1.5 truncate">
+                            <svg
+                              className={`w-3 h-3 text-neutral-500 transition-transform ${
+                                isSecCollapsed ? "-rotate-90" : "rotate-0"
+                              }`}
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                            >
+                              <polyline points="6 9 12 15 18 9" />
+                            </svg>
+                            <span className="truncate">{secName}</span>
+                          </div>
+                          <span className="text-[10px] text-neutral-600 font-mono">
+                            {secConvs.length}
+                          </span>
+                        </button>
+                        {!isSecCollapsed && (
+                          <div className="space-y-0.5 pl-1.5 border-l border-white/5 ml-2.5">
+                            {secConvs.map(renderConversationRow)}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Recent Conversations */}
+              <div className="space-y-0.5">
+                {recentConversations.length === 0 &&
+                pinnedConversations.length === 0 &&
+                Object.keys(groupedSections).length === 0 ? (
+                  isLoadingConversations ? (
+                    <div className="space-y-2 px-2 py-2" data-testid="conversations-loading-skeleton">
+                      <div className="h-7 rounded-lg bg-white/[0.04] animate-pulse" />
+                      <div className="h-7 rounded-lg bg-white/[0.03] animate-pulse" />
+                      <div className="h-7 rounded-lg bg-white/[0.02] animate-pulse" />
+                    </div>
+                  ) : (
+                    <div className="px-3 py-2 text-[11px] text-neutral-600 italic">
+                      No previous conversations
+                    </div>
+                  )
+                ) : (
+                  recentConversations.map(renderConversationRow)
+                )}
+              </div>
+            </div>
           )}
 
-          {/* Independent Section 2: Recent Reviews */}
+          {/* Recent Reviews - Scrolling together naturally in the SAME container */}
           {reviews.length > 0 && (
-            <section
-              aria-label="Recent Reviews"
-              className="flex-initial max-h-[42%] min-h-[104px] flex flex-col overflow-hidden"
+            <div
+              data-testid="sidebar-reviews-section"
+              className="pt-3 border-t border-white/10 space-y-1.5"
             >
-              <div className="flex items-center justify-between px-2 mb-1.5 flex-shrink-0">
+              <div className="flex items-center justify-between px-2 mb-1.5">
                 <span className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider font-mono">
                   Recent Reviews
                 </span>
                 <span className="text-[10px] text-neutral-500 font-mono">{reviews.length}</span>
               </div>
-              <div
-                data-testid="sidebar-reviews-scroll"
-                className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain pr-0.5 space-y-1"
-              >
+              <div className="space-y-1">
                 {reviews.map((rev) => {
                   const isConfirming = confirmDeleteReviewId === rev.id;
                   return (
@@ -852,34 +864,9 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
                   );
                 })}
               </div>
-            </section>
+            </div>
           )}
         </div>
-
-        {/* Fixed GitHub PR Footer */}
-        {onOpenGitHub && (
-          <div
-            data-testid="sidebar-github-pr-footer"
-            className="px-3 pt-2 pb-2 border-t border-white/10 flex-shrink-0 bg-black/50"
-          >
-            <button
-              type="button"
-              onClick={() => {
-                onOpenGitHub();
-                if (onCloseMobile) onCloseMobile();
-              }}
-              className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-white/[0.02] hover:bg-white/[0.06] border border-white/10 text-xs text-neutral-300 hover:text-white transition-colors cursor-pointer"
-            >
-              <div className="flex items-center gap-2">
-                <svg className="w-4 h-4 text-neutral-400" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
-                </svg>
-                <span>GitHub PRs</span>
-              </div>
-              <span className="text-[10px] text-neutral-500 font-mono">Review →</span>
-            </button>
-          </div>
-        )}
 
         <div className="p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-white/10 bg-black/40 space-y-2 flex-shrink-0">
           <button
