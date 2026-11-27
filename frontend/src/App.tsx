@@ -90,6 +90,31 @@ export const App: React.FC = () => {
       return next;
     });
   };
+
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem("nexarion_sidebar_width");
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (parsed >= 220 && parsed <= 420) return parsed;
+      }
+    } catch {}
+    return 260;
+  });
+
+  const handleResizeSidebarWidth = useCallback((width: number) => {
+    setSidebarWidth(width);
+    document.documentElement.style.setProperty("--sidebar-width", `${width}px`);
+    try {
+      localStorage.setItem("nexarion_sidebar_width", String(width));
+    } catch {}
+  }, []);
+
+  // Sync CSS variable on mount and when sidebar collapses/expands
+  useEffect(() => {
+    const effectiveWidth = isSidebarCollapsed ? 0 : sidebarWidth;
+    document.documentElement.style.setProperty("--sidebar-width", `${effectiveWidth}px`);
+  }, [isSidebarCollapsed, sidebarWidth]);
   const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
 
   const [user, setUser] = useState<User | null>(() => {
@@ -2186,12 +2211,14 @@ export const App: React.FC = () => {
           onOpenSearch={() => setIsSearchOpen(true)}
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={handleToggleSidebarCollapse}
+          sidebarWidth={sidebarWidth}
+          onResizeWidth={handleResizeSidebarWidth}
         />
 
         <main
-          className={`flex-1 flex flex-col min-w-0 ${
-            isSidebarCollapsed ? "md:pl-0" : "md:pl-[260px]"
-          } transition-[padding] duration-300 w-full min-h-0 relative z-10 overflow-hidden`}
+          className={`flex-1 flex flex-col min-w-0 transition-[padding] duration-300 w-full min-h-0 relative z-10 overflow-hidden main-layout-content ${
+            isSidebarCollapsed ? "sidebar-collapsed md:pl-0" : ""
+          }`}
         >
 
           {isSidebarCollapsed && (

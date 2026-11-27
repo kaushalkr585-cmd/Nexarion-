@@ -129,3 +129,85 @@ test("App.tsx does not eagerly crawl GitHub pull requests on startup/normal chat
     /currentView === "prs" && user\?\.github_connected/
   );
 });
+
+test("Sidebar isolates pinned conversations in a dedicated fixed container that does not scroll with recent conversations", () => {
+  const testConvs = [
+    {
+      id: "pin-1",
+      title: "Pinned Conversation Alpha",
+      mode: "normal",
+      is_pinned: true,
+      is_archived: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+    {
+      id: "pin-2",
+      title: "Pinned Conversation Beta",
+      mode: "normal",
+      is_pinned: true,
+      is_archived: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+    ...makeConversations(10),
+  ];
+
+  const html = renderToStaticMarkup(
+    React.createElement(Sidebar, {
+      currentView: "chat",
+      onSelectView: () => {},
+      conversations: testConvs,
+      activeConversationId: "pin-1",
+      onSelectConversation: () => {},
+      onNewChat: () => {},
+      onNewReview: () => {},
+      reviews: makeReviews(5),
+      user: null,
+      onOpenSettings: () => {},
+      onLogout: () => {},
+      onOpenAuth: () => {},
+      sidebarWidth: 300,
+      onResizeWidth: () => {},
+    })
+  );
+
+  // Dedicated pinned container must exist
+  assert.ok(html.includes('data-testid="sidebar-pinned-conversations"'));
+  assert.ok(html.includes("Pinned Conversation Alpha"));
+  assert.ok(html.includes("Pinned Conversation Beta"));
+
+  // Pinned container must appear BEFORE the recent conversations scroll container
+  const pinnedIdx = html.indexOf('data-testid="sidebar-pinned-conversations"');
+  const scrollIdx = html.indexOf('data-testid="sidebar-conversations-scroll"');
+  assert.ok(pinnedIdx !== -1 && scrollIdx !== -1 && pinnedIdx < scrollIdx);
+
+  // Resize handle must be present when onResizeWidth is passed and sidebar is not collapsed
+  assert.ok(html.includes('class="sidebar-resize-handle hidden md:block"'));
+  assert.ok(html.includes('role="separator"'));
+  assert.ok(html.includes('aria-label="Resize sidebar"'));
+
+  // Dedicated width data attribute and dynamic style applied
+  assert.ok(html.includes('data-sidebar-width="300"'));
+  assert.ok(html.includes('style="width:var(--sidebar-width)"'));
+});
+
+test("CSS and App layout integrate centralized --sidebar-width and responsive drawer architecture", () => {
+  const cssPath = path.resolve(import.meta.dirname, "../../index.css");
+  const css = fs.readFileSync(cssPath, "utf8");
+  const appSrc = fs.readFileSync(APP_PATH, "utf8");
+
+  // :root defines --sidebar-width and --sidebar-collapsed-width
+  assert.match(css, /--sidebar-width:\s*260px;/);
+  assert.match(css, /--sidebar-collapsed-width:\s*0px;/);
+
+  // Resize handle styles
+  assert.match(css, /\.sidebar-resize-handle/);
+  assert.match(css, /cursor:\s*col-resize;/);
+
+  // App.tsx manages sidebar width state and passes to Sidebar
+  assert.match(appSrc, /const\s*\[sidebarWidth,\s*setSidebarWidth\]\s*=\s*useState/);
+  assert.match(appSrc, /nexarion_sidebar_width/);
+  assert.match(appSrc, /--sidebar-width/);
+  assert.match(appSrc, /main-layout-content/);
+});

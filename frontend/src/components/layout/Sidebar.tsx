@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Conversation, NavView, Review, User } from "../../types";
 import { ConversationContextMenu } from "../chat/ConversationContextMenu";
 import { DeleteConfirmModal, ShareModal } from "../chat/ConversationModals";
@@ -44,6 +44,8 @@ interface SidebarProps {
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
   adminNewFeedbackCount?: number;
+  sidebarWidth?: number;
+  onResizeWidth?: (width: number) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = React.memo(({
@@ -74,6 +76,8 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
   isCollapsed = false,
   onToggleCollapse,
   adminNewFeedbackCount = 0,
+  sidebarWidth = 260,
+  onResizeWidth,
 }) => {
   const [confirmDeleteReviewId, setConfirmDeleteReviewId] = useState<string | null>(null);
   const [isDeletingReviewId, setIsDeletingReviewId] = useState<string | null>(null);
@@ -93,6 +97,55 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
   const [showArchived, setShowArchived] = useState<boolean>(false);
 
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
+
+  const isDraggingRef = useRef(false);
+  const dragStartXRef = useRef(0);
+  const dragStartWidthRef = useRef(260);
+
+  const handleResizePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (!onResizeWidth) return;
+      e.preventDefault();
+      e.stopPropagation();
+      isDraggingRef.current = true;
+      dragStartXRef.current = e.clientX;
+      dragStartWidthRef.current = sidebarWidth;
+
+      const handle = e.currentTarget as HTMLElement;
+      handle.classList.add("is-dragging");
+      handle.setPointerCapture(e.pointerId);
+
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      (document.body.style as unknown as Record<string, string>).webkitUserSelect = "none";
+    },
+    [onResizeWidth, sidebarWidth]
+  );
+
+  const handleResizePointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!isDraggingRef.current || !onResizeWidth) return;
+      const delta = e.clientX - dragStartXRef.current;
+      const nextWidth = Math.round(Math.min(420, Math.max(220, dragStartWidthRef.current + delta)));
+      onResizeWidth(nextWidth);
+    },
+    [onResizeWidth]
+  );
+
+  const handleResizePointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      if (!isDraggingRef.current) return;
+      isDraggingRef.current = false;
+      const handle = e.currentTarget as HTMLElement;
+      handle.classList.remove("is-dragging");
+      handle.releasePointerCapture(e.pointerId);
+
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      (document.body.style as unknown as Record<string, string>).webkitUserSelect = "";
+    },
+    []
+  );
 
   useEffect(() => {
     if (!isMobileOpen) return;
@@ -354,17 +407,33 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
       )}
 
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-50 w-[85vw] max-w-[320px] md:w-[260px] md:max-w-none h-full h-[100dvh] bg-black/95 md:bg-[#070707]/90 border-r border-white/10 flex flex-col overflow-hidden transition-all duration-300 ${
+        className={`fixed top-0 bottom-0 left-0 z-50 w-[85vw] max-w-[320px] md:max-w-none h-full h-[100dvh] bg-black/95 md:bg-[#070707]/90 border-r border-white/10 flex flex-col overflow-hidden transition-all duration-300 sidebar-mobile-drawer ${
           isMobileOpen
             ? "translate-x-0"
             : "-translate-x-full md:translate-x-0"
         } ${
           isCollapsed
             ? "md:-translate-x-full md:pointer-events-none md:w-0 md:opacity-0"
-            : "md:translate-x-0 md:w-[260px] md:opacity-100"
+            : "md:translate-x-0 md:opacity-100 sidebar-desktop-width"
         }`}
+        style={!isCollapsed ? { width: "var(--sidebar-width)" } : undefined}
+        {...(!isCollapsed ? { "data-sidebar-width": sidebarWidth } : {})}
         aria-label="Application Navigation"
       >
+
+        {/* Desktop drag-resize handle */}
+        {!isCollapsed && onResizeWidth && (
+          <div
+            className="sidebar-resize-handle hidden md:block"
+            onPointerDown={handleResizePointerDown}
+            onPointerMove={handleResizePointerMove}
+            onPointerUp={handleResizePointerUp}
+            onPointerCancel={handleResizePointerUp}
+            aria-label="Resize sidebar"
+            role="separator"
+            aria-orientation="vertical"
+          />
+        )}
 
         <div className="p-3.5 sm:p-4 pt-[max(0.875rem,env(safe-area-inset-top))] border-b border-white/10 flex-shrink-0">
           <div className="flex items-center justify-between mb-3.5">
@@ -497,8 +566,8 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
           })}
         </nav>
 
-        {/* Independent Scrolling Split Container: Recent Conversations + Recent Reviews */}
-        <div className="flex-1 min-h-0 flex flex-col overflow-hidden px-3 py-2.5 gap-3">
+        {/* Independent Scrolling Split Container: Pinned + Recent Conversations + Recent Reviews */}
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden px-3 py-2.5 gap-1">
           {/* Independent Section 1: Conversations */}
           <section
             aria-label="Conversations"
@@ -558,6 +627,34 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
               </div>
             </div>
 
+            {/* Pinned conversations: fixed (non-scrolling), capped height with own overflow */}
+            {!showArchived && pinnedConversations.length > 0 && (
+              <div
+                data-testid="sidebar-pinned-conversations"
+                className="flex-shrink-0 max-h-[30vh] overflow-y-auto overscroll-y-contain pb-2 mb-1 border-b border-white/[0.06]"
+              >
+                <div className="flex items-center gap-1.5 px-2.5 mb-1 text-[10px] font-semibold text-neutral-400 uppercase tracking-wider font-mono">
+                  <svg
+                    className="w-3 h-3 text-neutral-400"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <line x1="12" y1="17" x2="12" y2="22" />
+                    <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.89A4 4 0 0 1 14 9V5a2 2 0 0 0-2-2h0a2 2 0 0 0-2 2v4a4 4 0 0 1-2.11 3.56l-1.78.89A2 2 0 0 0 5 15.24Z" />
+                  </svg>
+                  <span>Pinned</span>
+                  <span className="ml-auto text-[10px] text-neutral-600 font-mono">
+                    {pinnedConversations.length}
+                  </span>
+                </div>
+                <div className="space-y-0.5">
+                  {pinnedConversations.map(renderConversationRow)}
+                </div>
+              </div>
+            )}
+
             <div
               data-testid="sidebar-conversations-scroll"
               className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain pr-0.5 space-y-3"
@@ -577,30 +674,6 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
                 )
               ) : (
                 <div className="space-y-3">
-                  {pinnedConversations.length > 0 && (
-                    <div>
-                      <div className="flex items-center gap-1.5 px-2.5 mb-1 text-[10px] font-semibold text-neutral-400 uppercase tracking-wider font-mono">
-                        <svg
-                          className="w-3 h-3 text-neutral-400"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                        >
-                          <line x1="12" y1="17" x2="12" y2="22" />
-                          <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.89A4 4 0 0 1 14 9V5a2 2 0 0 0-2-2h0a2 2 0 0 0-2 2v4a4 4 0 0 1-2.11 3.56l-1.78.89A2 2 0 0 0 5 15.24Z" />
-                        </svg>
-                        <span>Pinned</span>
-                        <span className="ml-auto text-[10px] text-neutral-600 font-mono">
-                          {pinnedConversations.length}
-                        </span>
-                      </div>
-                      <div className="space-y-0.5">
-                        {pinnedConversations.map(renderConversationRow)}
-                      </div>
-                    </div>
-                  )}
-
                   {Object.keys(groupedSections).length > 0 && (
                     <div className="space-y-2.5">
                       {Object.entries(groupedSections).map(([secName, secConvs]) => {
@@ -665,11 +738,16 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
             </div>
           </section>
 
+          {/* Visual separator with increased spacing */}
+          {reviews.length > 0 && (
+            <div className="flex-shrink-0 h-px bg-white/10 my-2" aria-hidden="true" />
+          )}
+
           {/* Independent Section 2: Recent Reviews */}
           {reviews.length > 0 && (
             <section
               aria-label="Recent Reviews"
-              className="flex-initial max-h-[42%] min-h-[104px] flex flex-col overflow-hidden pt-2.5 border-t border-white/10"
+              className="flex-initial max-h-[42%] min-h-[104px] flex flex-col overflow-hidden"
             >
               <div className="flex items-center justify-between px-2 mb-1.5 flex-shrink-0">
                 <span className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider font-mono">
