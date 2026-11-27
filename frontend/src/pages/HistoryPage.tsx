@@ -53,19 +53,19 @@ export const HistoryPage: React.FC<HistoryPageProps> = React.memo(({
   };
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6 relative z-10 text-left">
+    <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 py-4 sm:py-8 space-y-4 sm:space-y-6 relative z-10 text-left min-w-0 box-border overflow-x-hidden">
 
-      <div className="flex flex-col sm:flex-row sm:items-start lg:items-center justify-between gap-4 pb-6 border-b border-white/10 flex-wrap">
+      <div className="flex flex-col sm:flex-row sm:items-start lg:items-center justify-between gap-3 sm:gap-4 pb-4 sm:pb-6 border-b border-white/10 flex-wrap min-w-0 w-full">
         <div className="min-w-0 flex-1 max-w-2xl">
-          <h1 className="text-2xl sm:text-3xl font-semibold text-white tracking-tight">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-semibold text-white tracking-tight truncate">
             Review History
           </h1>
-          <p className="text-xs sm:text-sm text-neutral-400 mt-1 leading-relaxed">
+          <p className="text-xs sm:text-sm text-neutral-400 mt-1 leading-relaxed break-words">
             Persisted execution audits and findings across all repositories ({reviews.length}{" "}
             {reviews.length === 1 ? "record" : "records"})
           </p>
         </div>
-        <div className="flex items-center flex-wrap gap-2.5 self-start sm:self-auto flex-shrink-0 w-full sm:w-auto justify-start sm:justify-end">
+        <div className="flex items-center flex-wrap gap-2.5 self-start sm:self-auto flex-shrink-0 w-full sm:w-auto justify-start sm:justify-end min-w-0">
           {onClearReviews && (
             <button
               type="button"
@@ -90,13 +90,13 @@ export const HistoryPage: React.FC<HistoryPageProps> = React.memo(({
       </div>
 
       {actionError && (
-        <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-200">
+        <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-200 break-words w-full min-w-0 box-border">
           {actionError}
         </div>
       )}
 
       {showClearConfirm && (
-        <div className="p-4 rounded-2xl bg-neutral-900 border border-red-500/30 space-y-3 animate-fade-in">
+        <div className="p-3.5 sm:p-4 rounded-2xl bg-neutral-900 border border-red-500/30 space-y-3 animate-fade-in w-full min-w-0 box-border">
           <div className="flex items-center justify-between">
             <div className="text-sm font-semibold text-white">Clear All Review Audits?</div>
             <button
@@ -108,11 +108,11 @@ export const HistoryPage: React.FC<HistoryPageProps> = React.memo(({
               ✕
             </button>
           </div>
-          <p className="text-xs text-neutral-400 leading-relaxed">
+          <p className="text-xs text-neutral-400 leading-relaxed break-words">
             This will permanently delete all {reviews.length} past reviews and their associated agent
             findings from the database. This action cannot be undone.
           </p>
-          <div className="flex items-center gap-2 pt-1">
+          <div className="flex items-center gap-2 pt-1 flex-wrap">
             <button
               type="button"
               onClick={handleClearAll}
@@ -133,12 +133,12 @@ export const HistoryPage: React.FC<HistoryPageProps> = React.memo(({
         </div>
       )}
 
-      <div className="space-y-3">
+      <div className="space-y-3 w-full min-w-0">
         {reviews.length === 0 ? (
-          <div className="glass-panel p-16 text-center rounded-2xl space-y-4">
+          <div className="glass-panel p-8 sm:p-16 text-center rounded-2xl space-y-4 w-full min-w-0 box-border">
             <HistoryIcon className="w-8 h-8 text-neutral-500 mx-auto" />
             <div className="text-sm font-semibold text-white">No review records found</div>
-            <p className="text-xs text-neutral-400 max-w-sm mx-auto">
+            <p className="text-xs text-neutral-400 max-w-sm mx-auto break-words">
               You haven&apos;t executed any multi-agent reviews yet. Click &quot;New Review&quot; to inspect code.
             </p>
             <button
@@ -157,12 +157,16 @@ export const HistoryPage: React.FC<HistoryPageProps> = React.memo(({
               <div
                 key={r.id}
                 onClick={() => onOpenReviewDetail(r)}
-                className="glass-card p-4 sm:p-5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer hover:border-white/30 transition-all"
+                className="glass-card p-3.5 sm:p-5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 cursor-pointer hover:border-white/30 transition-all w-full min-w-0 box-border"
               >
-                <div className="space-y-1 min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-mono text-neutral-400 truncate max-w-full">
-                      {r.repository_name} • {r.pr_identifier}
+                <div className="space-y-1.5 min-w-0 flex-1 max-w-full">
+                  <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap min-w-0 max-w-full">
+                    <span
+                      className="text-xs font-mono text-neutral-400 truncate max-w-[180px] xs:max-w-[240px] sm:max-w-md block min-w-0"
+                      title={r.pr_identifier ? `${r.repository_name} • ${r.pr_identifier}` : r.repository_name}
+                    >
+                      {r.repository_name}
+                      {r.pr_identifier ? ` • ${r.pr_identifier}` : ""}
                     </span>
                     <span
                       className={`inline-flex items-center gap-1.5 text-[10px] px-2.5 py-0.5 rounded-full font-mono font-medium tracking-wide whitespace-nowrap shrink-0 ${
@@ -179,15 +183,15 @@ export const HistoryPage: React.FC<HistoryPageProps> = React.memo(({
                       {r.has_critical ? "CRITICAL RISK" : "CLEAN AUDIT"}
                     </span>
                   </div>
-                  <h3 className="text-sm sm:text-base font-semibold text-white break-words">
+                  <h3 className="text-sm sm:text-base font-semibold text-white break-words [overflow-wrap:anywhere] min-w-0 leading-snug">
                     {r.title}
                   </h3>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-400 font-mono">
-                    <span>{new Date(r.created_at).toLocaleString()}</span>
-                    <span>•</span>
-                    <span>Duration: {r.duration_seconds}s</span>
-                    <span>•</span>
-                    <span>
+                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 sm:gap-x-3 text-xs text-neutral-400 font-mono min-w-0 max-w-full">
+                    <span className="whitespace-nowrap">{new Date(r.created_at).toLocaleString()}</span>
+                    <span className="text-neutral-600 shrink-0">•</span>
+                    <span className="whitespace-nowrap">Duration: {r.duration_seconds}s</span>
+                    <span className="text-neutral-600 shrink-0">•</span>
+                    <span className="whitespace-nowrap">
                       Mode:{" "}
                       {!r.provider ||
                       r.provider.toLowerCase() === "nvidia" ||
@@ -198,8 +202,8 @@ export const HistoryPage: React.FC<HistoryPageProps> = React.memo(({
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto flex-shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-white/5">
-                  <div className="text-right">
+                <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4 w-full sm:w-auto flex-shrink-0 pt-2.5 sm:pt-0 border-t sm:border-t-0 border-white/5 min-w-0">
+                  <div className="text-left sm:text-right shrink-0">
                     <div className="text-sm font-semibold text-white font-mono">
                       {r.finding_count} {r.finding_count === 1 ? "Finding" : "Findings"}
                     </div>
@@ -208,47 +212,49 @@ export const HistoryPage: React.FC<HistoryPageProps> = React.memo(({
                     </div>
                   </div>
 
-                  {onDeleteReview && (
-                    <div onClick={(e) => e.stopPropagation()} className="relative">
-                      {isConfirming ? (
-                        <div className="flex items-center gap-1.5 p-1 bg-red-500/10 border border-red-500/30 rounded-xl text-xs">
-                          <span className="text-[10px] text-neutral-300 font-mono px-1">Delete?</span>
-                          <button
-                            type="button"
-                            onClick={(e) => handleDelete(e, r.id)}
-                            disabled={isDeletingId === r.id}
-                            className="px-2 py-1 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-medium transition-colors"
-                          >
-                            {isDeletingId === r.id ? "..." : "Delete review"}
-                          </button>
+                  <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                    {onDeleteReview && (
+                      <div onClick={(e) => e.stopPropagation()} className="relative shrink-0">
+                        {isConfirming ? (
+                          <div className="flex items-center gap-1.5 p-1 bg-red-500/10 border border-red-500/30 rounded-xl text-xs">
+                            <span className="text-[10px] text-neutral-300 font-mono px-1">Delete?</span>
+                            <button
+                              type="button"
+                              onClick={(e) => handleDelete(e, r.id)}
+                              disabled={isDeletingId === r.id}
+                              className="px-2 py-1 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-medium transition-colors cursor-pointer"
+                            >
+                              {isDeletingId === r.id ? "..." : "Delete review"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setConfirmDeleteId(null);
+                              }}
+                              className="px-1.5 py-1 text-neutral-400 hover:text-white rounded-lg text-xs cursor-pointer"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setConfirmDeleteId(null);
+                              setConfirmDeleteId(r.id);
                             }}
-                            className="px-1.5 py-1 text-neutral-400 hover:text-white rounded-lg text-xs"
+                            className="px-2.5 py-1.5 rounded-lg text-xs font-mono text-neutral-400 hover:text-red-400 hover:bg-white/5 border border-white/10 transition-colors cursor-pointer"
+                            title="Delete review"
                           >
-                            Cancel
+                            Delete review
                           </button>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setConfirmDeleteId(r.id);
-                          }}
-                          className="px-2.5 py-1.5 rounded-lg text-xs font-mono text-neutral-400 hover:text-red-400 hover:bg-white/5 border border-white/10 transition-colors"
-                          title="Delete review"
-                        >
-                          Delete review
-                        </button>
-                      )}
-                    </div>
-                  )}
+                        )}
+                      </div>
+                    )}
 
-                  <span className="text-neutral-400 text-sm">→</span>
+                    <span className="text-neutral-400 text-sm shrink-0">→</span>
+                  </div>
                 </div>
               </div>
             );

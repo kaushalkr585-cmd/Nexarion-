@@ -2556,7 +2556,7 @@ export const App: React.FC = () => {
             )}
 
             {currentView === "history" && (
-              <div className="flex-1 flex flex-col w-full h-full min-h-0 overflow-y-auto overscroll-y-contain">
+              <div className="flex-1 flex flex-col w-full h-full min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain">
                 <HistoryPage
                   reviews={reviews}
                   onOpenReviewDetail={handleOpenReviewDetail}
