@@ -81,3 +81,21 @@ test("Prompt composer applies pure-white directional neon border without blockin
   assert.ok(glowSection.includes("pointer-events: none;"), "Pseudo-elements must never intercept clicks or typing");
   assert.ok(!glowSection.includes("animation:"), "Prompt glow must not animate or pulse");
 });
+
+test("Prompt composer buttons inside message box are balanced and compact", () => {
+  const wsPath = path.join(__dirname, "AIConversationWorkspace.tsx");
+  const wsContent = fs.readFileSync(wsPath, "utf-8");
+
+  assert.ok(
+    !wsContent.includes("w-11 h-11 rounded-full"),
+    "Send / Stop button must not use oversized w-11 h-11 rounded-full"
+  );
+  assert.ok(
+    !wsContent.includes("w-10 h-10 rounded-full"),
+    "Plus button must not use oversized w-10 h-10 rounded-full"
+  );
+  assert.ok(
+    wsContent.includes("w-8 h-8 sm:w-9 sm:h-9"),
+    "Buttons inside prompt box must be compact (w-8 h-8 sm:w-9 sm:h-9)"
+  );
+});

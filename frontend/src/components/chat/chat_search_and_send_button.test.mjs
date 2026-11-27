@@ -59,7 +59,7 @@ test("AIConversationWorkspace has ChatGPT-style circular send and stop button", 
   // Send button styling
   assert.ok(content.includes("rounded-full"), "Send button must have rounded-full circular shape");
   assert.ok(content.includes("bg-white text-black"), "Send button must have white background and black icon");
-  assert.ok(content.includes("w-11 h-11"), "Send button must be 44px (w-11 h-11) matching ChatGPT style");
+  assert.ok(content.includes("w-8 h-8 sm:w-9 sm:h-9"), "Send button must be compact (w-8 h-8 sm:w-9 sm:h-9)");
   assert.ok(content.includes("ArrowUpIcon"), "Send button must render ArrowUpIcon");
   assert.ok(content.includes("StopSquareIcon"), "Send button must render StopSquareIcon during response generation");
   assert.ok(content.includes("onStopGeneration"), "Must invoke onStopGeneration when stop button is clicked");
