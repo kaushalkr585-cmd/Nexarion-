@@ -416,7 +416,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
   const adjustTextareaHeight = useCallback(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
-    textarea.style.height = "auto";
+
     const vh =
       typeof window !== "undefined"
         ? window.visualViewport?.height || window.innerHeight || 768
@@ -426,11 +426,19 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
     const maxHeight = isMobile
       ? Math.max(96, Math.min(144, Math.floor(vh * 0.25)))
       : Math.max(120, Math.min(220, Math.floor(vh * 0.34)));
+
+    if (!input || !input.trim()) {
+      textarea.style.height = `${minHeight}px`;
+      textarea.style.overflowY = "hidden";
+      return;
+    }
+
+    textarea.style.height = `${minHeight}px`;
     const scrollHeight = textarea.scrollHeight;
     const targetHeight = Math.min(Math.max(scrollHeight, minHeight), maxHeight);
     textarea.style.height = `${targetHeight}px`;
     textarea.style.overflowY = scrollHeight > maxHeight ? "auto" : "hidden";
-  }, []);
+  }, [input]);
 
   useLayoutEffect(() => {
     adjustTextareaHeight();
@@ -1529,7 +1537,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                 }
                 rows={1}
                 disabled={isSending}
-                className="w-full min-w-0 bg-transparent text-white placeholder-neutral-500 text-sm sm:text-[15px] leading-5 sm:leading-6 px-1 py-1.5 sm:py-2 resize-none focus:outline-none overflow-x-hidden block"
+                className="w-full min-w-0 bg-transparent text-white placeholder-neutral-500 placeholder:truncate text-sm sm:text-[15px] leading-5 sm:leading-6 px-1 py-1.5 sm:py-2 min-h-[36px] sm:min-h-[40px] max-h-[144px] sm:max-h-[220px] resize-none focus:outline-none overflow-x-hidden block"
               />
             </div>
 

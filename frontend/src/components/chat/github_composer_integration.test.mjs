@@ -99,3 +99,25 @@ test("Prompt composer buttons inside message box are balanced and compact", () =
     "Buttons inside prompt box must be compact (w-8 h-8 sm:w-9 sm:h-9)"
   );
 });
+
+test("Prompt composer textarea stays at default single-line height when empty on mobile and desktop", () => {
+  const wsPath = path.join(__dirname, "AIConversationWorkspace.tsx");
+  const wsContent = fs.readFileSync(wsPath, "utf-8");
+
+  assert.ok(
+    wsContent.includes("if (!input || !input.trim())"),
+    "adjustTextareaHeight must lock textarea to minHeight when input is empty or whitespace"
+  );
+  assert.ok(
+    wsContent.includes("textarea.style.height = `${minHeight}px`"),
+    "Empty textarea must immediately use minHeight rather than unbounded scrollHeight"
+  );
+  assert.ok(
+    wsContent.includes("min-h-[36px] sm:min-h-[40px]"),
+    "Textarea must define responsive minimum height baseline"
+  );
+  assert.ok(
+    wsContent.includes("placeholder:truncate"),
+    "Textarea placeholder must truncate without multiline phantom wrapping"
+  );
+});
