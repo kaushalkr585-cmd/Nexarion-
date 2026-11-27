@@ -476,19 +476,18 @@ body {
 
 .nx-markdown table {
   width: 100%;
-  max-width: 100%;
 }
 
 .nx-markdown table th,
 .nx-markdown table td {
   min-width: 0;
   word-break: normal;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .nx-markdown table code {
   white-space: break-spaces;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   word-break: normal;
 }
 
@@ -520,6 +519,7 @@ body {
     max-width: none;
     padding: 0.5rem 0.625rem;
     font-size: 0.8125rem;
+    overflow-wrap: anywhere;
   }
 
   /* Multi-column or long-description tables stack cleanly as readable mobile cards */

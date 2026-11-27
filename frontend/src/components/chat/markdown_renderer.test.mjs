@@ -461,4 +461,22 @@ test("Phase 2 & 3 & 4: Intelligent code block line wrapping, App/Workspace flex 
     cssSrc.includes("white-space: break-spaces;"),
     "index.css allows table inline code tokens to wrap cleanly across desktop and mobile"
   );
+
+  // Guard against desktop table columns crushing single words like WARNING -> WARNIN / G
+  const desktopTableRuleMatch = cssSrc.match(
+    /\.nx-markdown table th,\s*\.nx-markdown table td\s*\{([^}]*)\}/
+  );
+  assert.ok(desktopTableRuleMatch, "index.css must define .nx-markdown table th/td rule");
+  assert.ok(
+    desktopTableRuleMatch[1].includes("overflow-wrap: break-word;") &&
+      !desktopTableRuleMatch[1].includes("overflow-wrap: anywhere;"),
+    "Desktop table cells must use break-word rather than anywhere so Severity/Rule tokens never split mid-character"
+  );
+  const desktopTableCodeMatch = cssSrc.match(/\.nx-markdown table code\s*\{([^}]*)\}/);
+  assert.ok(desktopTableCodeMatch, "index.css must define .nx-markdown table code rule");
+  assert.ok(
+    desktopTableCodeMatch[1].includes("overflow-wrap: break-word;") &&
+      !desktopTableCodeMatch[1].includes("overflow-wrap: anywhere;"),
+    "Desktop table inline code pills must use break-word rather than anywhere"
+  );
 });
