@@ -387,14 +387,31 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const wasJustSubmittedRef = useRef(false);
   const prevIsSendingRef = useRef(isSending);
-  const prevMessageCountRef = useRef(conversation?.messages?.length || 0);
+  const isJumpingRef = useRef(false);
+  const jumpTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastKnownMessagesRef = useRef<Message[]>([]);
+  const prevConvIdRefForMessages = useRef(conversation?.id);
+
+  // Sync and persist last known messages so transient loading states never wipe out rendered messages
+  if (conversation?.id !== prevConvIdRefForMessages.current) {
+    prevConvIdRefForMessages.current = conversation?.id;
+    lastKnownMessagesRef.current = conversation?.messages || [];
+  } else if (conversation?.messages && conversation.messages.length > 0) {
+    lastKnownMessagesRef.current = conversation.messages;
+  }
 
   const selectedModel: SelectedModel = {
     provider: (activeProvider as "ollama" | "nvidia" | "llm") || "llm",
     model: undefined,
   };
 
-  const messages: Message[] = conversation?.messages || [];
+  const messages: Message[] =
+    conversation?.messages && conversation.messages.length > 0
+      ? conversation.messages
+      : lastKnownMessagesRef.current.length > 0 && isLoadingConversation
+      ? lastKnownMessagesRef.current
+      : conversation?.messages || [];
+  const prevMessageCountRef = useRef(messages.length);
 
   const adjustTextareaHeight = useCallback(() => {
     const textarea = textareaRef.current;
@@ -429,7 +446,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
     };
   }, [adjustTextareaHeight]);
 
-  const handleScroll = () => {
+  const handleScroll = useCallback(() => {
     const container = scrollContainerRef.current;
     if (!container || messages.length === 0) {
       setShowJumpToLatest(false);
@@ -440,15 +457,70 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
       container.scrollHeight - container.scrollTop - container.clientHeight;
     const SCROLL_THRESHOLD = 120;
     const nearBottom = distanceFromBottom <= SCROLL_THRESHOLD;
+
+    if (nearBottom) {
+      isJumpingRef.current = false;
+      setIsUserNearBottom(true);
+      setShowJumpToLatest(false);
+      return;
+    }
+
+    // While animating jump to latest, avoid fighting the animation with intermediate threshold toggles
+    if (isJumpingRef.current) {
+      return;
+    }
+
     setIsUserNearBottom(nearBottom);
     setShowJumpToLatest(distanceFromBottom > SCROLL_THRESHOLD && messages.length > 0);
-  };
+  }, [messages.length]);
 
-  const handleJumpToLatest = () => {
+  const handleJumpToLatest = useCallback((e?: React.MouseEvent | React.TouchEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    isJumpingRef.current = true;
     setIsUserNearBottom(true);
     setShowJumpToLatest(false);
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+
+    if (jumpTimeoutRef.current) {
+      clearTimeout(jumpTimeoutRef.current);
+    }
+
+    const container = scrollContainerRef.current;
+    if (container) {
+      try {
+        container.scrollTo({
+          top: container.scrollHeight,
+          behavior: "smooth",
+        });
+      } catch {
+        container.scrollTop = container.scrollHeight;
+      }
+    } else if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+
+    jumpTimeoutRef.current = setTimeout(() => {
+      isJumpingRef.current = false;
+      const c = scrollContainerRef.current;
+      if (c) {
+        const dist = c.scrollHeight - c.scrollTop - c.clientHeight;
+        if (dist <= 120) {
+          setIsUserNearBottom(true);
+          setShowJumpToLatest(false);
+        }
+      }
+    }, 600);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (jumpTimeoutRef.current) {
+        clearTimeout(jumpTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (messages.length === 0) {
@@ -463,6 +535,8 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
       requestAnimationFrame(() => {
         if (assistantStartRef.current) {
           assistantStartRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+        } else if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: "smooth" });
         } else if (messagesEndRef.current) {
           messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
         }
@@ -495,6 +569,8 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
         requestAnimationFrame(() => {
           if (assistantStartRef.current) {
             assistantStartRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+          } else if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: "smooth" });
           } else if (messagesEndRef.current) {
             messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
           }
@@ -502,7 +578,11 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
       } else if (isUserNearBottom) {
 
         requestAnimationFrame(() => {
-          messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+          if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: "smooth" });
+          } else if (messagesEndRef.current) {
+            messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+          }
         });
       }
     }
@@ -747,7 +827,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
       </header>
 
       <div className="flex-1 relative min-h-0 min-w-0 overflow-hidden flex flex-col">
-        {isLoadingConversation && !conversation ? (
+        {isLoadingConversation && !conversation && messages.length === 0 ? (
           <div className={`flex-1 min-h-0 min-w-0 overflow-hidden ${CHAT_HORIZONTAL_PADDING_CLASS} py-4 sm:py-6 flex flex-col justify-center`}>
             <div className={`${CHAT_COLUMN_CONTAINER_CLASS} flex flex-col gap-5 pt-6`} role="status" aria-live="polite">
               <span className="sr-only">Loading conversation</span>
@@ -1137,7 +1217,11 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
                 </div>
               )}
 
-              <div ref={messagesEndRef} />
+              <div
+                ref={messagesEndRef}
+                className="h-px w-full pointer-events-none opacity-0 shrink-0"
+                aria-hidden="true"
+              />
             </div>
           </div>
         )}
@@ -1147,6 +1231,7 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
             id="jump-to-latest-btn"
             type="button"
             onClick={handleJumpToLatest}
+            onTouchEnd={handleJumpToLatest}
             className="absolute bottom-3 right-4 sm:bottom-4 sm:right-6 z-30 flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-1.5 min-h-[38px] rounded-full bg-neutral-900/95 hover:bg-neutral-800 text-white border border-white/20 shadow-2xl text-xs sm:text-[13px] font-mono backdrop-blur-md transition-all animate-fade-in group cursor-pointer"
             aria-label="Jump to latest message"
           >
