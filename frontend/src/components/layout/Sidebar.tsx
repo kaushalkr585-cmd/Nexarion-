@@ -48,6 +48,20 @@ interface SidebarProps {
   onResizeWidth?: (width: number) => void;
 }
 
+const RailTooltip: React.FC<{ label: string; shortcut?: string }> = ({ label, shortcut }) => (
+  <div
+    role="tooltip"
+    className="pointer-events-none absolute left-full ml-3 top-1/2 -translate-y-1/2 px-2.5 py-1.5 rounded-lg bg-[#18181b] text-neutral-100 text-xs font-medium border border-white/15 shadow-2xl whitespace-nowrap z-50 opacity-0 -translate-x-1 scale-95 group-hover:opacity-100 group-hover:translate-x-0 group-hover:scale-100 transition-all duration-150 delay-75 flex items-center gap-2"
+  >
+    <span>{label}</span>
+    {shortcut && (
+      <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] font-mono text-neutral-400 border border-white/10">
+        {shortcut}
+      </kbd>
+    )}
+  </div>
+);
+
 export const Sidebar: React.FC<SidebarProps> = React.memo(({
   currentView,
   onSelectView,
@@ -406,6 +420,188 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
         />
       )}
 
+      {/* ── Collapsed Desktop Rail (ChatGPT-style UX, 64px width) ── */}
+      {isCollapsed && (
+        <aside
+          className="hidden md:flex fixed top-0 bottom-0 left-0 z-40 w-16 h-full h-[100dvh] bg-[#070707] border-r border-white/10 flex-col items-center py-3 select-none overflow-visible transition-all duration-200"
+          aria-label="Collapsed navigation"
+        >
+          {/* Top Section */}
+          <div className="flex flex-col items-center gap-2 w-full flex-shrink-0">
+            {/* Nexarion Logo */}
+            <div
+              className="relative group w-10 h-10 rounded-xl flex items-center justify-center text-white select-none"
+              aria-label="Nexarion"
+            >
+              <LogoIcon size={24} />
+              <RailTooltip label="Nexarion" />
+            </div>
+
+            {/* Expand Sidebar Toggle */}
+            {onToggleCollapse && (
+              <button
+                type="button"
+                onClick={onToggleCollapse}
+                className="relative group w-10 h-10 rounded-xl flex items-center justify-center text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                title="Expand sidebar"
+                aria-label="Expand sidebar"
+              >
+                <svg
+                  className="w-5 h-5 text-neutral-400 group-hover:text-white transition-colors"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                  <line x1="9" y1="3" x2="9" y2="21" />
+                  <polyline points="14 9 17 12 14 15" />
+                </svg>
+                <RailTooltip label="Expand sidebar" shortcut="Ctrl+[" />
+              </button>
+            )}
+
+            {/* New Chat */}
+            <button
+              type="button"
+              onClick={onNewChat}
+              className="relative group w-10 h-10 rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 text-white border border-white/15 flex items-center justify-center transition-colors cursor-pointer shadow-sm"
+              title="New Chat"
+              aria-label="New chat"
+            >
+              <PlusIcon className="w-5 h-5 text-white" />
+              <RailTooltip label="New chat" />
+            </button>
+
+            {/* Search */}
+            {onOpenSearch && (
+              <button
+                type="button"
+                onClick={onOpenSearch}
+                className="relative group w-10 h-10 rounded-xl flex items-center justify-center text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                title="Search chats"
+                aria-label="Search chats"
+              >
+                <SearchIcon className="w-5 h-5 text-neutral-400 group-hover:text-white transition-colors" />
+                <RailTooltip label="Search chats" shortcut="Ctrl+K" />
+              </button>
+            )}
+          </div>
+
+          {/* Divider */}
+          <div className="w-8 h-px bg-white/10 my-2 flex-shrink-0" />
+
+          {/* Middle Section */}
+          <div className="flex flex-col items-center gap-2 w-full flex-shrink-0">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = currentView === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => onSelectView(item.id)}
+                  className={`relative group w-10 h-10 rounded-xl flex items-center justify-center transition-colors cursor-pointer ${
+                    isActive
+                      ? "bg-white/15 text-white border border-white/20 shadow-sm"
+                      : "text-neutral-400 hover:text-white hover:bg-white/10"
+                  }`}
+                  aria-label={item.label}
+                >
+                  <Icon className={`w-5 h-5 flex-shrink-0 ${isActive ? "text-white" : "text-neutral-400 group-hover:text-white transition-colors"}`} />
+                  {Boolean(item.badgeCount && item.badgeCount > 0) && (
+                    <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-400" />
+                  )}
+                  <RailTooltip
+                    label={item.label}
+                    shortcut={item.badgeCount ? `${item.badgeCount} new` : undefined}
+                  />
+                </button>
+              );
+            })}
+
+            {/* GitHub PRs */}
+            {onOpenGitHub && (
+              <button
+                type="button"
+                onClick={onOpenGitHub}
+                className="relative group w-10 h-10 rounded-xl flex items-center justify-center text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                aria-label="GitHub Pull Requests"
+              >
+                <svg className="w-5 h-5 text-neutral-400 group-hover:text-white transition-colors" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
+                </svg>
+                <RailTooltip label="GitHub PRs" />
+              </button>
+            )}
+          </div>
+
+          {/* Bottom Section: Profile & Settings anchored to the bottom */}
+          <div className="mt-auto flex flex-col items-center gap-2 w-full flex-shrink-0 pt-2">
+            <div className="w-8 h-px bg-white/10 mb-1 flex-shrink-0" />
+
+            {/* Settings */}
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              className="relative group w-10 h-10 rounded-xl flex items-center justify-center text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+              aria-label="Settings"
+            >
+              <SettingsIcon className="w-5 h-5 text-neutral-400 group-hover:text-white transition-colors" />
+              <RailTooltip label="Settings" />
+            </button>
+
+            {/* User Profile / Avatar */}
+            {user ? (
+              <button
+                type="button"
+                onClick={onOpenSettings}
+                className="relative group w-10 h-10 rounded-xl flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer"
+                aria-label={`User profile: ${user.name}`}
+              >
+                {user.avatar_url ? (
+                  <img
+                    src={user.avatar_url}
+                    alt={user.name}
+                    className="w-7 h-7 rounded-full object-cover border border-white/20"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLElement).style.display = "none";
+                      const fallback = e.currentTarget.parentElement?.querySelector(".avatar-fallback-rail");
+                      if (fallback) (fallback as HTMLElement).classList.remove("hidden");
+                    }}
+                  />
+                ) : null}
+                <div
+                  className={`avatar-fallback-rail w-7 h-7 rounded-full bg-neutral-800 border border-white/20 items-center justify-center text-xs font-semibold text-white ${
+                    user.avatar_url ? "hidden" : "flex"
+                  }`}
+                >
+                  {user.name ? user.name.charAt(0).toUpperCase() : "U"}
+                </div>
+                <RailTooltip label={user.name || user.email || "Account"} />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onOpenAuth}
+                className="relative group w-10 h-10 rounded-xl flex items-center justify-center text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                aria-label="Sign In / Register"
+              >
+                <svg className="w-5 h-5 text-neutral-400 group-hover:text-white transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+                  <polyline points="10 17 15 12 10 7" />
+                  <line x1="15" y1="12" x2="3" y2="12" />
+                </svg>
+                <RailTooltip label="Sign In / Register" />
+              </button>
+            )}
+          </div>
+        </aside>
+      )}
+
+      {/* ── Expanded Sidebar (Desktop & Mobile Drawer) ── */}
       <aside
         className={`fixed top-0 bottom-0 left-0 z-50 w-[85vw] max-w-[320px] md:max-w-none h-full h-[100dvh] bg-black/95 md:bg-[#070707]/90 border-r border-white/10 flex flex-col overflow-hidden transition-all duration-300 sidebar-mobile-drawer ${
           isMobileOpen

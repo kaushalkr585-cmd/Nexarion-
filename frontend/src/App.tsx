@@ -112,7 +112,7 @@ export const App: React.FC = () => {
 
   // Sync CSS variable on mount and when sidebar collapses/expands
   useEffect(() => {
-    const effectiveWidth = isSidebarCollapsed ? 0 : sidebarWidth;
+    const effectiveWidth = isSidebarCollapsed ? 64 : sidebarWidth;
     document.documentElement.style.setProperty("--sidebar-width", `${effectiveWidth}px`);
   }, [isSidebarCollapsed, sidebarWidth]);
   const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
@@ -206,6 +206,14 @@ export const App: React.FC = () => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setIsSearchOpen((prev) => !prev);
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === "[") {
+        const target = e.target as HTMLElement | null;
+        if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+          return;
+        }
+        e.preventDefault();
+        handleToggleSidebarCollapse();
       }
     };
     window.addEventListener("keydown", handleGlobalKeyDown);
@@ -2355,41 +2363,10 @@ export const App: React.FC = () => {
         />
 
         <main
-          className={`flex-1 flex flex-col min-w-0 transition-[padding] duration-300 w-full min-h-0 relative z-10 overflow-hidden main-layout-content ${
-            isSidebarCollapsed ? "sidebar-collapsed md:pl-0" : ""
+          className={`flex-1 flex flex-col min-w-0 transition-[padding] duration-200 w-full min-h-0 relative z-10 overflow-hidden main-layout-content ${
+            isSidebarCollapsed ? "sidebar-collapsed md:pl-16" : ""
           }`}
         >
-
-          {isSidebarCollapsed && (
-            <button
-              type="button"
-              onClick={() => {
-                setIsSidebarCollapsed(false);
-                try {
-                  localStorage.setItem("nexarion_sidebar_collapsed", "false");
-                } catch {
-
-                }
-              }}
-              className="hidden md:flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-[#141414]/90 hover:bg-[#202020] text-neutral-300 hover:text-white border border-white/10 text-xs font-mono shadow-xl transition-all fixed top-3 left-4 z-40 cursor-pointer backdrop-blur"
-              title="Open sidebar"
-              aria-label="Open sidebar"
-            >
-              <svg
-                className="w-4 h-4 text-neutral-400"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                <line x1="9" y1="3" x2="9" y2="21" />
-              </svg>
-              <span>Sidebar</span>
-            </button>
-          )}
 
           {currentView !== "chat" && (
             <div className="hidden md:flex flex-shrink-0 items-center justify-between px-6 py-4 min-h-[61px] border-b border-white/10 bg-black/60 backdrop-blur-md">

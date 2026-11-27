@@ -830,9 +830,10 @@ body {
   }
   .main-layout-content {
     padding-left: var(--sidebar-width, 260px);
+    transition: padding-left 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   }
   .main-layout-content.sidebar-collapsed {
-    padding-left: 0 !important;
+    padding-left: 64px !important;
   }
 }
 
