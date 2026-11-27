@@ -42,10 +42,10 @@ def test_get_llm_client_normalizes_dummy_model_names():
 def test_nemotron_client_guard():
     # Direct instantiation with dummy strings
     client = NemotronClient(model="llm")
-    assert client.model == "nvidia/nemotron-3-ultra-550b-a55b"
+    assert client.model == "nvidia/nemotron-3.5-super-vl-120b-a12b"
 
     client2 = NemotronClient(model="nvidia")
-    assert client2.model == "nvidia/nemotron-3-ultra-550b-a55b"
+    assert client2.model == "nvidia/nemotron-3.5-super-vl-120b-a12b"
 
     client3 = NemotronClient(model="")
-    assert client3.model == "nvidia/nemotron-3-ultra-550b-a55b"
+    assert client3.model == "nvidia/nemotron-3.5-super-vl-120b-a12b"

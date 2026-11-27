@@ -54,20 +54,25 @@ def get_llm_client(
         url = base_url or settings.nvidia_base_url
         mdl = clean_model or settings.nvidia_model
         logger.info("Initializing NemotronClient (model: %s, url: %s)", mdl, url)
-        return NemotronClient(
+        client: NemotronClient | OllamaClient = NemotronClient(
             api_key=key,
             base_url=url,
             model=mdl,
             timeout=timeout_val,
             temperature=temp_val,
         )
+    else:
+        url = base_url or settings.ollama_base_url or settings.llm_base_url
+        mdl = clean_model or settings.ollama_model or settings.llm_model
+        logger.info("Initializing OllamaClient (model: %s, url: %s)", mdl, url)
+        client = OllamaClient(
+            base_url=url,
+            model=mdl,
+            timeout=timeout_val,
+            temperature=temp_val,
+        )
 
-    url = base_url or settings.ollama_base_url or settings.llm_base_url
-    mdl = clean_model or settings.ollama_model or settings.llm_model
-    logger.info("Initializing OllamaClient (model: %s, url: %s)", mdl, url)
-    return OllamaClient(
-        base_url=url,
-        model=mdl,
-        timeout=timeout_val,
-        temperature=temp_val,
-    )
+    client.connect_timeout = settings.llm_connect_timeout_seconds
+    client.ttft_timeout = settings.llm_ttft_timeout_seconds
+    client.idle_timeout = settings.llm_stream_idle_timeout_seconds
+    return client

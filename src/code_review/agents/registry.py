@@ -290,10 +290,14 @@ def resolve_runtime_llm_info(
 
     if active_provider in {"nvidia", "llm"} or "nemotron" in candidate_model.lower():
         if candidate_model.lower() in {"", "llm", "nvidia", "default", "none"}:
-            candidate_model = settings.nvidia_model or "nvidia/nemotron-3-ultra-550b-a55b"
+            candidate_model = settings.nvidia_model or "nvidia/nemotron-3.5-super-vl-120b-a12b"
         lower_model = candidate_model.lower()
         if "nemotron" in lower_model and "ultra" in lower_model:
             display = f"NVIDIA Nemotron Ultra ({candidate_model})"
+        elif "nemotron" in lower_model and "super" in lower_model:
+            display = f"NVIDIA Nemotron Super ({candidate_model})"
+        elif "nemotron" in lower_model and "lightning" in lower_model:
+            display = f"NVIDIA Nemotron Lightning ({candidate_model})"
         elif "nemotron" in lower_model:
             display = f"NVIDIA Nemotron ({candidate_model})"
         else:

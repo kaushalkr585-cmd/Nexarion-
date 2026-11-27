@@ -421,9 +421,6 @@ class ConversationMemoryManager:
                     keyword_scores[mem.id] = 0.85
 
         vector_scores: dict[str, float] = {}
-        embedding_svc = get_embedding_service()
-        query_embedding = embedding_svc.get_embedding(clean_query)
-
         vector_candidates_stmt = base_stmt.order_by(
             ConversationMemoryRecord.created_at.desc()
         ).limit(30)
@@ -431,12 +428,18 @@ class ConversationMemoryManager:
             if mem.id not in all_candidates:
                 all_candidates[mem.id] = (mem, title, dt, conv_mode)
 
-        if query_embedding:
-            for mem_id, (mem, _, _, _) in all_candidates.items():
-                if mem.embedding:
-                    sim = compute_cosine_similarity(query_embedding, mem.embedding)
-                    if sim >= settings.memory_similarity_threshold:
-                        vector_scores[mem_id] = sim
+        has_embedded_candidates = any(
+            bool(mem.embedding) for mem, _, _, _ in all_candidates.values()
+        )
+        if has_embedded_candidates:
+            embedding_svc = get_embedding_service()
+            query_embedding = embedding_svc.get_embedding(clean_query, input_type="query")
+            if query_embedding:
+                for mem_id, (mem, _, _, _) in all_candidates.items():
+                    if mem.embedding:
+                        sim = compute_cosine_similarity(query_embedding, mem.embedding)
+                        if sim >= settings.memory_similarity_threshold:
+                            vector_scores[mem_id] = sim
 
         ranked_excerpts: list[MemoryExcerpt] = []
         now = datetime.now(UTC)

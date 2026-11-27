@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -85,10 +86,13 @@ def list_pull_requests(
             return []
 
     all_prs: list[PullRequestResponse] = []
-    for r in target_repos[:8]:
-        owner = r["owner"]
-        repo_name = r["name"]
-        full_name = r.get("full_name") or f"{owner}/{repo_name}"
+    repos_to_fetch = target_repos[:8]
+
+    def _fetch_repo_prs(repo_item: dict[str, Any]) -> list[PullRequestResponse]:
+        owner = repo_item["owner"]
+        repo_name = repo_item["name"]
+        full_name = repo_item.get("full_name") or f"{owner}/{repo_name}"
+        prs_for_repo: list[PullRequestResponse] = []
         try:
             raw_prs = service.list_pull_requests(owner, repo_name)
             for p in raw_prs:
@@ -106,9 +110,20 @@ def list_pull_requests(
                     changed_files=1,
                     created_at=_parse_pr_datetime(p.get("created_at")),
                 )
-                all_prs.append(pr_item)
+                prs_for_repo.append(pr_item)
         except Exception as pr_err:
             logger.warning("Could not list pull requests for %s: %s", full_name, pr_err)
+        return prs_for_repo
+
+    if repos_to_fetch:
+        max_workers = min(8, len(repos_to_fetch))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_repo = {executor.submit(_fetch_repo_prs, r): r for r in repos_to_fetch}
+            for future in as_completed(future_to_repo):
+                try:
+                    all_prs.extend(future.result())
+                except Exception as exc:
+                    logger.warning("Error collecting parallel pull requests: %s", exc)
 
     if status_filter and status_filter.lower() != "all":
         norm_status = status_filter.lower()

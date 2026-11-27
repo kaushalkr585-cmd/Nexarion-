@@ -154,7 +154,15 @@ export const App: React.FC = () => {
       return [];
     }
   });
-  const [pullRequests, setPullRequests] = useState<PullRequest[]>([]);
+  const [pullRequests, setPullRequests] = useState<PullRequest[]>(() => {
+    try {
+      const cached = sessionStorage.getItem("nexarion_prs_cache");
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  const lastPrFetchRef = useRef<number>(0);
   const [overviewMetrics, setOverviewMetrics] = useState<OverviewMetrics | null>(null);
   const [isOverviewLoading, setIsOverviewLoading] = useState<boolean>(false);
   const [overviewError, setOverviewError] = useState<string | null>(null);
@@ -411,6 +419,7 @@ export const App: React.FC = () => {
     setSelectedReview(null);
     setIsDetailOpen(false);
     setPullRequests([]);
+    lastPrFetchRef.current = 0;
     setOverviewMetrics(null);
     setOverviewError(null);
     setPrsError(null);
@@ -422,6 +431,7 @@ export const App: React.FC = () => {
         window.sessionStorage.removeItem("nexarion_user_cache");
         window.sessionStorage.removeItem("nexarion_conversations_cache");
         window.sessionStorage.removeItem("nexarion_reviews_cache");
+        window.sessionStorage.removeItem("nexarion_prs_cache");
       }
     } catch {
 
@@ -449,6 +459,12 @@ export const App: React.FC = () => {
     try {
       const prs = await prApi.list();
       setPullRequests(prs);
+      lastPrFetchRef.current = Date.now();
+      try {
+        sessionStorage.setItem("nexarion_prs_cache", JSON.stringify(prs));
+      } catch {
+
+      }
     } catch (err) {
       setPrsError(
         sanitizeErrorMessage(err instanceof Error ? err.message : "Failed to load pull requests")
@@ -492,12 +508,20 @@ export const App: React.FC = () => {
     if (!currentUser.github_connected) {
       setPullRequests([]);
       setPrsError(null);
+      try {
+        sessionStorage.removeItem("nexarion_prs_cache");
+      } catch {
+
+      }
     }
   };
 
   useEffect(() => {
-    if (currentView === "prs" && user?.github_connected && pullRequests.length === 0 && !isPrsLoading) {
-      void fetchPullRequests();
+    if (currentView === "prs" && user?.github_connected) {
+      const isStale = Date.now() - lastPrFetchRef.current > 60000;
+      if ((pullRequests.length === 0 || isStale) && !isPrsLoading) {
+        void fetchPullRequests();
+      }
     }
   }, [currentView, user?.id, user?.github_connected]);
 
@@ -687,6 +711,13 @@ export const App: React.FC = () => {
     selectedMessageId?: string
   ) => {
     if (isSendingMessage && !startNewConversation) return;
+    if (
+      !startNewConversation &&
+      activeConversationId &&
+      activeStreamControllersRef.current.has(activeConversationId)
+    ) {
+      return;
+    }
     const requestMode: ChatMode = explicitGithubRepo || githubMode ? "github" : "normal";
     if (requestMode === "github") {
       lastGitHubPromptRef.current = content;
@@ -1112,6 +1143,27 @@ export const App: React.FC = () => {
             setGenerationState((curr) => (curr === "cancelled" ? "idle" : curr));
           }, 600);
         }
+        setActiveConversation((prev) => {
+          if (
+            !prev ||
+            activeSelectionVersionRef.current !== selectionVersionAtStart ||
+            (streamConversationId && prev.id !== streamConversationId)
+          ) {
+            return prev;
+          }
+          return {
+            ...prev,
+            messages: (prev.messages || []).map((m) =>
+              m.id === asstTempId && m.status === "streaming"
+                ? {
+                    ...m,
+                    status: m.content.trim() ? "sent" : "error",
+                    error: m.content.trim() ? undefined : "Generation stopped.",
+                  }
+                : m
+            ),
+          };
+        });
       } else {
         if (activeConvIdRef.current === (streamConversationId || targetConvId || undefined)) {
           setGenerationState("error");
@@ -1210,22 +1262,28 @@ export const App: React.FC = () => {
     model?: string,
     diffContext?: string
   ) => {
-    if (!activeConversationId || isSendingMessage) return;
+    const targetConvId = activeConversationId;
+    if (!targetConvId || activeStreamControllersRef.current.has(targetConvId)) return;
 
-    const targetMsgId =
-      messageId ||
-      activeConversation?.messages?.filter((m) => m.role === "assistant").pop()?.id;
+    const targetMsgObj = messageId
+      ? activeConversation?.messages?.find((m) => m.id === messageId)
+      : activeConversation?.messages?.filter((m) => m.role === "assistant").pop();
+    const targetMsgId = targetMsgObj?.id;
     if (!targetMsgId) return;
 
     const requestMode: ChatMode = githubMode ? "github" : "normal";
     setLiveStatusDetail(null);
+
+    const abortController = new AbortController();
+    activeStreamControllersRef.current.set(targetConvId, abortController);
+    abortControllerRef.current = abortController;
 
     const isDiffReview = Boolean(diffContext && diffContext.trim().length > 0);
     setGenerationType(isDiffReview ? "diff" : "chat");
     setGenerationState("submitting");
 
     setActiveConversation((prev) => {
-      if (!prev) return prev;
+      if (!prev || prev.id !== targetConvId) return prev;
       return {
         ...prev,
         messages: (prev.messages || []).map((m) =>
@@ -1237,13 +1295,11 @@ export const App: React.FC = () => {
     setIsSendingMessage(true);
     setWaveState(isDiffReview ? "reviewing" : "thinking");
     setTimeout(() => {
+      if (activeConvIdRef.current !== targetConvId) return;
       setGenerationState((curr) =>
         curr === "submitting" ? (isDiffReview ? "reviewing" : "thinking") : curr
       );
     }, 180);
-
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
 
     const targetProvider = provider || providerStatus?.active_provider;
     const effectiveModel =
@@ -1253,7 +1309,7 @@ export const App: React.FC = () => {
 
     try {
       await conversationApi.streamRegenerate(
-        activeConversationId,
+        targetConvId,
         {
           messageId: targetMsgId,
           provider: targetProvider,
@@ -1266,14 +1322,14 @@ export const App: React.FC = () => {
         {
           signal: abortController.signal,
           onStatus: (evt) => {
-            if (activeConvIdRef.current === activeConversationId) {
+            if (activeConvIdRef.current === targetConvId) {
               setLiveStatusDetail(evt.detail || null);
             }
           },
           onRepoMeta: (meta) => {
-            if (requestMode === "github") {
+            if (requestMode === "github" && activeConvIdRef.current === targetConvId) {
               setActiveRepoContext(() => ({
-                conversation_id: activeConversationId,
+                conversation_id: targetConvId,
                 repository_full_name: meta.repository,
                 default_branch: meta.branch,
                 selected_branch: meta.branch,
@@ -1281,7 +1337,7 @@ export const App: React.FC = () => {
               }));
             }
             setActiveConversation((prev) => {
-              if (!prev) return prev;
+              if (!prev || prev.id !== targetConvId) return prev;
               return {
                 ...prev,
                 messages: (prev.messages || []).map((m) =>
@@ -1292,7 +1348,7 @@ export const App: React.FC = () => {
           },
           onRepoSelect: (evt) => {
             setActiveConversation((prev) => {
-              if (!prev) return prev;
+              if (!prev || prev.id !== targetConvId) return prev;
               return {
                 ...prev,
                 messages: (prev.messages || []).map((m) =>
@@ -1302,10 +1358,12 @@ export const App: React.FC = () => {
             });
           },
           onToken: (chunk) => {
-            setGenerationState("streaming");
-            setWaveState("responding");
+            if (activeConvIdRef.current === targetConvId) {
+              setGenerationState("streaming");
+              setWaveState("responding");
+            }
             setActiveConversation((prev) => {
-              if (!prev) return prev;
+              if (!prev || prev.id !== targetConvId) return prev;
               return {
                 ...prev,
                 messages: (prev.messages || []).map((m) =>
@@ -1315,14 +1373,18 @@ export const App: React.FC = () => {
             });
           },
           onDone: (data) => {
-            setLiveStatusDetail(null);
-            setGenerationState("completed");
-            setWaveState("idle");
-            setTimeout(() => {
-              setGenerationState((curr) => (curr === "completed" ? "idle" : curr));
-            }, 600);
+            if (activeConvIdRef.current === targetConvId) {
+              setLiveStatusDetail(null);
+              setGenerationState("completed");
+              setWaveState("idle");
+              setTimeout(() => {
+                if (activeConvIdRef.current === targetConvId) {
+                  setGenerationState((curr) => (curr === "completed" ? "idle" : curr));
+                }
+              }, 600);
+            }
             setActiveConversation((prev) => {
-              if (!prev) return prev;
+              if (!prev || prev.id !== targetConvId) return prev;
               return {
                 ...prev,
                 messages: (prev.messages || []).map((m) =>
@@ -1340,15 +1402,19 @@ export const App: React.FC = () => {
             });
           },
           onError: (err) => {
-            setLiveStatusDetail(null);
-            setGenerationState("error");
-            setWaveState("error");
-            setTimeout(() => {
-              setGenerationState((curr) => (curr === "error" ? "idle" : curr));
-              setWaveState("idle");
-            }, 2500);
+            if (activeConvIdRef.current === targetConvId) {
+              setLiveStatusDetail(null);
+              setGenerationState("error");
+              setWaveState("error");
+              setTimeout(() => {
+                if (activeConvIdRef.current === targetConvId) {
+                  setGenerationState((curr) => (curr === "error" ? "idle" : curr));
+                  setWaveState("idle");
+                }
+              }, 2500);
+            }
             setActiveConversation((prev) => {
-              if (!prev) return prev;
+              if (!prev || prev.id !== targetConvId) return prev;
               return {
                 ...prev,
                 messages: (prev.messages || []).map((m) =>
@@ -1356,7 +1422,9 @@ export const App: React.FC = () => {
                     ? {
                         ...m,
                         status: "error",
-                        error: err.user_message || "Something went wrong while generating your response. Please try again.",
+                        error:
+                          err.user_message ||
+                          "Something went wrong while generating your response. Please try again.",
                       }
                     : m
                 ),
@@ -1367,21 +1435,44 @@ export const App: React.FC = () => {
       );
     } catch (err: unknown) {
       if ((err as { name?: string })?.name === "AbortError") {
-        setGenerationState("cancelled");
-        setWaveState("idle");
-        setTimeout(() => {
-          setGenerationState((curr) => (curr === "cancelled" ? "idle" : curr));
-        }, 600);
-      } else {
-        setGenerationState("error");
-        setWaveState("error");
-        setTimeout(() => {
-          setGenerationState((curr) => (curr === "error" ? "idle" : curr));
+        if (activeConvIdRef.current === targetConvId) {
+          setGenerationState("cancelled");
           setWaveState("idle");
-        }, 2500);
+          setTimeout(() => {
+            if (activeConvIdRef.current === targetConvId) {
+              setGenerationState((curr) => (curr === "cancelled" ? "idle" : curr));
+            }
+          }, 600);
+        }
+        setActiveConversation((prev) => {
+          if (!prev || prev.id !== targetConvId) return prev;
+          return {
+            ...prev,
+            messages: (prev.messages || []).map((m) =>
+              m.id === targetMsgId && m.status === "streaming"
+                ? {
+                    ...m,
+                    status: m.content.trim() ? "sent" : "error",
+                    error: m.content.trim() ? undefined : "Generation stopped.",
+                  }
+                : m
+            ),
+          };
+        });
+      } else {
+        if (activeConvIdRef.current === targetConvId) {
+          setGenerationState("error");
+          setWaveState("error");
+          setTimeout(() => {
+            if (activeConvIdRef.current === targetConvId) {
+              setGenerationState((curr) => (curr === "error" ? "idle" : curr));
+              setWaveState("idle");
+            }
+          }, 2500);
+        }
         const safeError = sanitizeErrorMessage(err instanceof Error ? err.message : "");
         setActiveConversation((prev) => {
-          if (!prev) return prev;
+          if (!prev || prev.id !== targetConvId) return prev;
           return {
             ...prev,
             messages: (prev.messages || []).map((m) =>
@@ -1389,7 +1480,9 @@ export const App: React.FC = () => {
                 ? {
                     ...m,
                     status: "error",
-                    error: safeError || "Something went wrong while generating your response. Please try again.",
+                    error:
+                      safeError ||
+                      "Something went wrong while generating your response. Please try again.",
                   }
                 : m
             ),
@@ -1397,9 +1490,14 @@ export const App: React.FC = () => {
         });
       }
     } finally {
-      setLiveStatusDetail(null);
-      setIsSendingMessage(false);
-      abortControllerRef.current = null;
+      activeStreamControllersRef.current.delete(targetConvId);
+      if (abortControllerRef.current === abortController) {
+        abortControllerRef.current = null;
+      }
+      if (activeConvIdRef.current === targetConvId) {
+        setLiveStatusDetail(null);
+        setIsSendingMessage(false);
+      }
     }
   };
 
@@ -1412,7 +1510,10 @@ export const App: React.FC = () => {
     attachmentIds?: string[],
     onSaved?: () => void
   ) => {
-    if (!activeConversationId || isSendingMessage) return;
+    const targetConvId = activeConversationId;
+    if (!targetConvId || isSendingMessage || activeStreamControllersRef.current.has(targetConvId)) {
+      return;
+    }
 
     const conv = activeConversation;
     if (!conv || !conv.messages) return;
@@ -1420,7 +1521,6 @@ export const App: React.FC = () => {
     const targetIdx = conv.messages.findIndex((m) => m.id === messageId);
     if (targetIdx === -1) return;
 
-    const targetConvId = activeConversationId;
     const previousConv = conv;
 
     const existingAttachmentIds =
@@ -1445,6 +1545,10 @@ export const App: React.FC = () => {
       created_at: new Date().toISOString(),
     };
 
+    const abortController = new AbortController();
+    activeStreamControllersRef.current.set(targetConvId, abortController);
+    abortControllerRef.current = abortController;
+
     const newMessages = [
       ...conv.messages.slice(0, targetIdx),
       updatedUserMsg,
@@ -1464,12 +1568,10 @@ export const App: React.FC = () => {
     setGenerationState("submitting");
 
     setTimeout(() => {
+      if (activeConvIdRef.current !== targetConvId) return;
       setGenerationState(diffContext ? "reviewing" : "thinking");
       setWaveState(diffContext ? "reviewing" : "thinking");
     }, 180);
-
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
 
     const targetProvider = provider || providerStatus?.active_provider;
     const effectiveModel =
@@ -1499,7 +1601,7 @@ export const App: React.FC = () => {
             }
           },
           onRepoMeta: (meta) => {
-            if (requestMode === "github") {
+            if (requestMode === "github" && activeConvIdRef.current === targetConvId) {
               setActiveRepoContext(() => ({
                 conversation_id: targetConvId,
                 repository_full_name: meta.repository,
@@ -1548,8 +1650,10 @@ export const App: React.FC = () => {
             if (onSaved) onSaved();
           },
           onToken: (chunk) => {
-            setGenerationState("streaming");
-            setWaveState("responding");
+            if (activeConvIdRef.current === targetConvId) {
+              setGenerationState("streaming");
+              setWaveState("responding");
+            }
             setActiveConversation((prev) => {
               if (!prev || prev.id !== targetConvId) return prev;
               return {
@@ -1561,12 +1665,16 @@ export const App: React.FC = () => {
             });
           },
           onDone: (data) => {
-            setLiveStatusDetail(null);
-            setGenerationState("completed");
-            setWaveState("idle");
-            setTimeout(() => {
-              setGenerationState((curr) => (curr === "completed" ? "idle" : curr));
-            }, 600);
+            if (activeConvIdRef.current === targetConvId) {
+              setLiveStatusDetail(null);
+              setGenerationState("completed");
+              setWaveState("idle");
+              setTimeout(() => {
+                if (activeConvIdRef.current === targetConvId) {
+                  setGenerationState((curr) => (curr === "completed" ? "idle" : curr));
+                }
+              }, 600);
+            }
             setActiveConversation((prev) => {
               if (!prev || prev.id !== targetConvId) return prev;
               return {
@@ -1593,13 +1701,17 @@ export const App: React.FC = () => {
             });
           },
           onError: (err) => {
-            setLiveStatusDetail(null);
-            setGenerationState("error");
-            setWaveState("error");
-            setTimeout(() => {
-              setGenerationState((curr) => (curr === "error" ? "idle" : curr));
-              setWaveState("idle");
-            }, 2500);
+            if (activeConvIdRef.current === targetConvId) {
+              setLiveStatusDetail(null);
+              setGenerationState("error");
+              setWaveState("error");
+              setTimeout(() => {
+                if (activeConvIdRef.current === targetConvId) {
+                  setGenerationState((curr) => (curr === "error" ? "idle" : curr));
+                  setWaveState("idle");
+                }
+              }, 2500);
+            }
             setActiveConversation((prev) => {
               if (!prev || prev.id !== targetConvId) return prev;
               return {
@@ -1622,26 +1734,53 @@ export const App: React.FC = () => {
       );
     } catch (err: unknown) {
       if ((err as { name?: string })?.name === "AbortError") {
-        setGenerationState("cancelled");
-        setWaveState("idle");
-        setTimeout(() => {
-          setGenerationState((curr) => (curr === "cancelled" ? "idle" : curr));
-        }, 600);
-      } else {
-
-        setActiveConversation(previousConv);
-        setGenerationState("error");
-        setWaveState("error");
-        setTimeout(() => {
-          setGenerationState((curr) => (curr === "error" ? "idle" : curr));
+        if (activeConvIdRef.current === targetConvId) {
+          setGenerationState("cancelled");
           setWaveState("idle");
-        }, 2500);
+          setTimeout(() => {
+            if (activeConvIdRef.current === targetConvId) {
+              setGenerationState((curr) => (curr === "cancelled" ? "idle" : curr));
+            }
+          }, 600);
+        }
+        setActiveConversation((prev) => {
+          if (!prev || prev.id !== targetConvId) return prev;
+          return {
+            ...prev,
+            messages: (prev.messages || []).map((m) =>
+              m.id === asstTempId && m.status === "streaming"
+                ? {
+                    ...m,
+                    status: m.content.trim() ? "sent" : "error",
+                    error: m.content.trim() ? undefined : "Generation stopped.",
+                  }
+                : m
+            ),
+          };
+        });
+      } else {
+        setActiveConversation(previousConv);
+        if (activeConvIdRef.current === targetConvId) {
+          setGenerationState("error");
+          setWaveState("error");
+          setTimeout(() => {
+            if (activeConvIdRef.current === targetConvId) {
+              setGenerationState((curr) => (curr === "error" ? "idle" : curr));
+              setWaveState("idle");
+            }
+          }, 2500);
+        }
         throw err;
       }
     } finally {
-      setLiveStatusDetail(null);
-      setIsSendingMessage(false);
-      abortControllerRef.current = null;
+      activeStreamControllersRef.current.delete(targetConvId);
+      if (abortControllerRef.current === abortController) {
+        abortControllerRef.current = null;
+      }
+      if (activeConvIdRef.current === targetConvId) {
+        setLiveStatusDetail(null);
+        setIsSendingMessage(false);
+      }
     }
   };
 

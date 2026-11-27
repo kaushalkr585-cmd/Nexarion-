@@ -15,6 +15,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from code_review.config import get_settings
 from code_review.db.database import get_engine, init_database
 from code_review.db.init_db import seed_database
+from code_review.observability import get_performance_monitor
 from code_review.web.routes import (
     agent_routes,
     auth_routes,
@@ -144,7 +145,12 @@ def create_app() -> FastAPI:
             "app": "NEXARION",
             "version": "1.0.0",
             "active_provider": settings.llm_provider,
+            "performance": get_performance_monitor().snapshot(),
         }
+
+    @app.get("/api/metrics/performance")
+    def get_performance_metrics() -> dict[str, Any]:
+        return get_performance_monitor().snapshot()
 
     frontend_dist = Path("frontend/dist")
     if frontend_dist.is_dir():

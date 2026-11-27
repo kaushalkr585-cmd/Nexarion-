@@ -191,7 +191,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   return response.json();
 }
 
-async function readSSEStream(
+export async function readSSEStream(
   response: Response,
   callbacks: {
     onInit?: (metadata: { id: string; title: string; mode?: ChatMode; user_message_id?: string }) => void;
@@ -207,9 +207,11 @@ async function readSSEStream(
       mode?: ChatMode;
       content: string;
       created_at: string;
-      metrics?: { ttft_ms?: number; total_ms?: number; chunks?: number };
+      metrics?: { ttft_ms?: number; total_ms?: number; chunks?: number; retries?: number; fallback_used?: boolean };
     }) => void;
     onError?: (err: StreamError) => void;
+    signal?: AbortSignal;
+    idleTimeoutMs?: number;
   }
 ): Promise<void> {
   if (!response.body) {
@@ -219,67 +221,149 @@ async function readSSEStream(
   const reader = response.body.getReader();
   const decoder = new TextDecoder("utf-8");
   let buffer = "";
+  let sawTerminalEvent = false;
+  let idleTimedOut = false;
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  const idleMs = callbacks.idleTimeoutMs ?? 35000;
 
+  const clearIdleTimer = () => {
+    if (idleTimer !== null) {
+      clearTimeout(idleTimer);
+      idleTimer = null;
+    }
+  };
+
+  const resetIdleTimer = () => {
+    clearIdleTimer();
+    if (idleMs > 0) {
+      idleTimer = setTimeout(() => {
+        idleTimedOut = true;
+        try {
+          void reader.cancel("SSE idle timeout");
+        } catch {
+          // Ignore cancel errors
+        }
+      }, idleMs);
+    }
+  };
+
+  const processBlock = (block: string): "continue" | "stop" => {
+    if (!block.trim()) return "continue";
+    let eventType = "message";
+    const dataLines: string[] = [];
+
+    for (const rawLine of block.split(/\r?\n/)) {
+      if (!rawLine || rawLine.startsWith(":")) {
+        // SSE heartbeat / comment line
+        continue;
+      }
+      if (rawLine.startsWith("event:")) {
+        eventType = rawLine.slice(6).trim();
+      } else if (rawLine.startsWith("data:")) {
+        dataLines.push(rawLine.slice(5).trimStart());
+      }
+    }
+
+    const dataStr = dataLines.join("\n").trim();
+    if (!dataStr) return "continue";
+
+    try {
+      const parsed = JSON.parse(dataStr);
+      if (eventType === "init" && callbacks.onInit) {
+        callbacks.onInit(parsed);
+      } else if (eventType === "ack" && callbacks.onAck) {
+        callbacks.onAck(parsed);
+      } else if (eventType === "status" && callbacks.onStatus) {
+        callbacks.onStatus(parsed);
+      } else if (eventType === "repo_select" && callbacks.onRepoSelect) {
+        callbacks.onRepoSelect(parsed);
+      } else if (eventType === "repo_meta" && callbacks.onRepoMeta) {
+        callbacks.onRepoMeta(parsed);
+      } else if (eventType === "token" && callbacks.onToken) {
+        if (typeof parsed.chunk === "string" && parsed.chunk.length > 0) {
+          callbacks.onToken(parsed.chunk);
+        }
+      } else if (eventType === "done") {
+        sawTerminalEvent = true;
+        if (callbacks.onDone) callbacks.onDone(parsed);
+      } else if (eventType === "error") {
+        sawTerminalEvent = true;
+        const friendly: StreamError = {
+          error_code: parsed.error_code || "ERROR",
+          user_message: sanitizeErrorMessage(parsed.user_message || parsed.detail || ""),
+          retryable: parsed.retryable !== false,
+        };
+        if (callbacks.onError) callbacks.onError(friendly);
+        return "stop";
+      }
+    } catch (e) {
+      console.warn("Error parsing SSE data block:", e, dataStr);
+    }
+    return "continue";
+  };
+
+  resetIdleTimer();
   try {
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        const trailing = decoder.decode();
+        if (trailing) buffer += trailing;
+        if (buffer.trim()) {
+          if (processBlock(buffer) === "stop") return;
+          buffer = "";
+        }
+        break;
+      }
+
+      resetIdleTimer();
       buffer += decoder.decode(value, { stream: true });
 
-      const lines = buffer.split("\n\n");
-      buffer = lines.pop() || "";
+      const blocks = buffer.split(/\r?\n\r?\n/);
+      buffer = blocks.pop() || "";
 
-      for (const block of lines) {
-        if (!block.trim()) continue;
-        let eventType = "message";
-        let dataStr = "";
-
-        for (const line of block.split("\n")) {
-          if (line.startsWith("event: ")) {
-            eventType = line.slice(7).trim();
-          } else if (line.startsWith("data: ")) {
-            dataStr = line.slice(6).trim();
-          }
-        }
-
-        if (!dataStr) continue;
-
-        try {
-          const parsed = JSON.parse(dataStr);
-          if (eventType === "init" && callbacks.onInit) {
-            callbacks.onInit(parsed);
-          } else if (eventType === "ack" && callbacks.onAck) {
-            callbacks.onAck(parsed);
-          } else if (eventType === "status" && callbacks.onStatus) {
-            callbacks.onStatus(parsed);
-          } else if (eventType === "repo_select" && callbacks.onRepoSelect) {
-            callbacks.onRepoSelect(parsed);
-          } else if (eventType === "repo_meta" && callbacks.onRepoMeta) {
-            callbacks.onRepoMeta(parsed);
-          } else if (eventType === "token" && callbacks.onToken) {
-            callbacks.onToken(parsed.chunk);
-          } else if (eventType === "done" && callbacks.onDone) {
-            callbacks.onDone(parsed);
-          } else if (eventType === "error") {
-            const friendly: StreamError = {
-              error_code: parsed.error_code || "ERROR",
-              user_message: sanitizeErrorMessage(parsed.user_message || parsed.detail || ""),
-              retryable: parsed.retryable !== false,
-            };
-            if (callbacks.onError) callbacks.onError(friendly);
-            return;
-          }
-        } catch (e) {
-          console.warn("Error parsing SSE data block:", e, dataStr);
-        }
+      for (const block of blocks) {
+        if (processBlock(block) === "stop") return;
       }
     }
+
+    if (idleTimedOut && !sawTerminalEvent) {
+      callbacks.onError?.({
+        error_code: "TIMEOUT",
+        user_message: "NEXARION couldn't get a response in time. Please try again.",
+        retryable: true,
+      });
+      return;
+    }
+
+    if (!sawTerminalEvent && !callbacks.signal?.aborted) {
+      callbacks.onError?.({
+        error_code: "STREAM_INTERRUPTED",
+        user_message: "The connection was interrupted before the response finished. Please try again.",
+        retryable: true,
+      });
+    }
   } catch (err: unknown) {
+    if (idleTimedOut && !sawTerminalEvent) {
+      callbacks.onError?.({
+        error_code: "TIMEOUT",
+        user_message: "NEXARION couldn't get a response in time. Please try again.",
+        retryable: true,
+      });
+      return;
+    }
     const errorObj = err as { name?: string };
-    if (errorObj?.name === "AbortError") {
+    if (errorObj?.name === "AbortError" || callbacks.signal?.aborted) {
       return;
     }
     throw err;
+  } finally {
+    clearIdleTimer();
+    try {
+      reader.releaseLock();
+    } catch {
+      // ignore if already released
+    }
   }
 }
 

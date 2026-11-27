@@ -55,7 +55,16 @@ class Settings(BaseSettings):
     """Base URL for the default LLM service endpoint."""
 
     llm_timeout_seconds: float = 60.0
-    """Timeout in seconds for LLM review generation requests."""
+    """Overall timeout in seconds for LLM generation requests."""
+
+    llm_connect_timeout_seconds: float = 5.0
+    """TCP/TLS connection timeout in seconds for LLM HTTP requests."""
+
+    llm_ttft_timeout_seconds: float = 15.0
+    """Time-to-first-token timeout in seconds before triggering fallback or error on primary model."""
+
+    llm_stream_idle_timeout_seconds: float = 25.0
+    """Maximum idle interval in seconds between consecutive streaming chunks."""
 
     llm_file_concurrency: int = 2
     """Maximum number of changed files sent to the LLM at the same time."""
@@ -72,7 +81,7 @@ class Settings(BaseSettings):
     nvidia_api_key: str = ""
     """API key for NVIDIA NIM API."""
 
-    nvidia_model: str = "nvidia/nemotron-3-ultra-550b-a55b"
+    nvidia_model: str = "nvidia/nemotron-3.5-super-vl-120b-a12b"
     """Model identifier for NVIDIA Nemotron."""
 
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"

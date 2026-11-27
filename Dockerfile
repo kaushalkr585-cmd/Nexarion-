@@ -53,4 +53,4 @@ EXPOSE ${PORT}
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:${PORT}/health || exit 1
 
-CMD sh -c "uvicorn code_review.web.app:app --host 0.0.0.0 --port ${PORT}"
+CMD sh -c "uvicorn code_review.web.app:app --host 0.0.0.0 --port ${PORT} --timeout-keep-alive 75 --proxy-headers --forwarded-allow-ips '*'"

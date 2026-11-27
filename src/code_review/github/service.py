@@ -510,6 +510,13 @@ class GitHubService:
         self, owner: str, repo: str, token: str | None = None
     ) -> list[dict[str, Any]]:
         self._authorize_operation("list_pull_requests", owner=owner, repo=repo)
+        repo_slug = f"{owner}/{repo}"
+        cache_key = self._cache.build_key(self.cache_scope, "list_pull_requests", repo=repo_slug)
+        if not token:
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                return cached
+
         headers = self.get_auth_headers(token)
         with httpx.Client(timeout=20.0) as client:
             resp = client.get(
@@ -543,6 +550,8 @@ class GitHubService:
                         "body": pr.get("body") or "",
                     }
                 )
+            if not token:
+                self._cache.set(cache_key, results, ttl=60.0)
             return results
 
     def get_pull_request_diff(

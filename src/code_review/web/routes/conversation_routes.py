@@ -1,14 +1,28 @@
 from __future__ import annotations
 
+import asyncio
+import inspect
 import json
 import logging
 import re
+import threading
 import time
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, selectinload
@@ -42,7 +56,14 @@ from code_review.github.mode_router import (
     ToolRoutePlan,
     UserIntent,
 )
+from code_review.llm.client import OllamaClient
 from code_review.llm.factory import get_llm_client
+from code_review.llm.nemotron_client import NemotronClient
+from code_review.observability import (
+    RequestPerformanceRecord,
+    StageTimer,
+    get_performance_monitor,
+)
 from code_review.web.auth import get_current_user_optional
 from code_review.web.error_normalizer import normalize_ai_error
 from code_review.web.schemas import (
@@ -63,6 +84,117 @@ from code_review.web.schemas import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/conversations", tags=["Conversations"])
+
+_ACTIVE_STREAMS_LOCK = threading.Lock()
+_ACTIVE_CONVERSATION_STREAMS: dict[str, str] = {}
+
+
+def _register_active_stream(conversation_id: str, trace_id: str) -> str | None:
+    """Register trace_id as active stream for conversation_id, returning any superseded trace."""
+    with _ACTIVE_STREAMS_LOCK:
+        previous = _ACTIVE_CONVERSATION_STREAMS.get(conversation_id)
+        _ACTIVE_CONVERSATION_STREAMS[conversation_id] = trace_id
+        return previous if previous and previous != trace_id else None
+
+
+def _is_active_stream(conversation_id: str, trace_id: str) -> bool:
+    with _ACTIVE_STREAMS_LOCK:
+        return _ACTIVE_CONVERSATION_STREAMS.get(conversation_id) == trace_id
+
+
+def _clear_active_stream(conversation_id: str, trace_id: str) -> None:
+    with _ACTIVE_STREAMS_LOCK:
+        if _ACTIVE_CONVERSATION_STREAMS.get(conversation_id) == trace_id:
+            _ACTIVE_CONVERSATION_STREAMS.pop(conversation_id, None)
+
+
+def _trim_chat_history(
+    history: list[dict[str, str]],
+    *,
+    max_turns: int = 8,
+    max_total_chars: int = 16000,
+) -> list[dict[str, str]]:
+    """Trim conversation history to recent turns within a bounded character budget."""
+    recent = [dict(m) for m in history[-max_turns:]]
+    if not recent:
+        return recent
+    total = sum(len(m.get("content") or "") for m in recent)
+    if total <= max_total_chars:
+        return recent
+    kept: list[dict[str, str]] = []
+    running = 0
+    for idx, msg in enumerate(reversed(recent)):
+        content = msg.get("content") or ""
+        if idx == 0:
+            if len(content) > max_total_chars:
+                msg = {**msg, "content": content[:max_total_chars]}
+            kept.append(msg)
+            running += len(msg["content"])
+            continue
+        if running + len(content) > max_total_chars:
+            remaining = max(0, max_total_chars - running)
+            if remaining >= 400:
+                kept.append({**msg, "content": content[:remaining] + "..."})
+            break
+        kept.append(msg)
+        running += len(content)
+    kept.reverse()
+    return kept
+
+
+def _should_enable_thinking(
+    *,
+    route_plan: ToolRoutePlan,
+    prompt: str,
+    diff_context: str | None,
+    document_context: str | None,
+) -> bool:
+    """Disable heavyweight thinking overhead on casual and straightforward Q&A turns."""
+    if route_plan.use_github_orchestrator or diff_context or document_context:
+        return True
+    if route_plan.intent == UserIntent.CASUAL_CHAT:
+        return False
+    if route_plan.intent in (UserIntent.GENERAL_CODING, UserIntent.EDUCATIONAL_GITHUB):
+        if "```" not in (prompt or "") and len(prompt or "") < 600:
+            return False
+    return True
+
+
+def _background_index_conversation_memory(
+    *,
+    conversation_id: str,
+    user_id: str | None,
+    message_ids: list[str],
+    source_mode: str,
+    contains_repo_context: bool,
+    summarize: bool = True,
+    llm_client: Any = None,
+) -> None:
+    """Index messages and update conversation summary cleanly after SSE done flushes."""
+    try:
+        session_factory = get_session_factory()
+        with session_factory() as bg_db:
+            for msg_id in message_ids:
+                if not msg_id:
+                    continue
+                msg_rec = bg_db.query(MessageRecord).filter_by(id=msg_id).first()
+                if msg_rec:
+                    ConversationMemoryManager.index_message(
+                        bg_db,
+                        msg_rec,
+                        user_id=user_id,
+                        source_mode=source_mode,
+                        contains_repo_context=contains_repo_context,
+                    )
+            if summarize:
+                ConversationMemoryManager.generate_or_update_summary(
+                    bg_db,
+                    conversation_id,
+                    user_id=user_id,
+                    llm_client=llm_client,
+                )
+    except Exception as mem_err:
+        logger.warning("Background memory indexing failed gracefully: %s", mem_err)
 
 
 def _to_detail_response(conversation: ConversationRecord) -> ConversationDetailResponse:
@@ -1458,9 +1590,11 @@ def edit_message_stream(
     conversation_id: str,
     message_id: str,
     payload: MessageEditRequest,
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[UserRecord | None, Depends(get_current_user_optional)],
 ) -> StreamingResponse:
+    t_setup0 = time.perf_counter()
     query = db.query(ConversationRecord).filter(ConversationRecord.id == conversation_id)
     if user:
         query = query.filter(ConversationRecord.user_id == user.id)
@@ -1513,13 +1647,6 @@ def edit_message_stream(
     target_msg.content = payload.content
     conversation.updated_at = datetime.now(UTC)
 
-    try:
-        ConversationMemoryManager.update_or_invalidate_message_memory(
-            db, target_msg.id, payload.content
-        )
-    except Exception as mem_err:
-        logger.warning("Failed to update memory on prompt edit: %s", mem_err)
-
     doc_context: str | None = None
     if payload.attachment_ids:
         doc_context, _ = _resolve_document_context(
@@ -1554,10 +1681,16 @@ def edit_message_stream(
 
     db.commit()
     db.refresh(conversation)
+    auth_db_ms = (time.perf_counter() - t_setup0) * 1000.0
 
+    t_mem0 = time.perf_counter()
+    skip_memory = (
+        route_plan.use_github_orchestrator
+        or route_plan.intent == UserIntent.CASUAL_CHAT
+    )
     memory_context = (
         None
-        if route_plan.use_github_orchestrator
+        if skip_memory
         else _resolve_memory_context(
             db=db,
             user_id=user.id if user else None,
@@ -1565,6 +1698,7 @@ def edit_message_stream(
             query=payload.content,
         )
     )
+    memory_ms = (time.perf_counter() - t_mem0) * 1000.0
 
     history = [
         {"role": m.role, "content": m.content} for m in conversation.messages[: target_index + 1]
@@ -1593,6 +1727,9 @@ def edit_message_stream(
         github_mode=route_plan.mode == "github",
         github_repo=payload.github_repo,
         route_plan=route_plan,
+        request=request,
+        defer_user_memory_index=True,
+        stage_timings_ms={"auth_db_ms": auth_db_ms, "memory_ms": memory_ms},
     )
 
 
@@ -1600,9 +1737,11 @@ def edit_message_stream(
 def send_message_stream(
     conversation_id: str,
     payload: MessageCreateRequest,
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[UserRecord | None, Depends(get_current_user_optional)],
 ) -> StreamingResponse:
+    t_setup0 = time.perf_counter()
     query = db.query(ConversationRecord).filter(ConversationRecord.id == conversation_id)
     if user:
         query = query.filter(ConversationRecord.user_id == user.id)
@@ -1627,12 +1766,6 @@ def send_message_stream(
         user.id if user else None,
     )
 
-    try:
-        ConversationMemoryManager.index_message(db, user_msg, user_id=user.id if user else None)
-    except Exception as mem_err:
-        db.rollback()
-        logger.warning("Failed to index user prompt memory: %s", mem_err)
-
     doc_context, _ = _resolve_document_context(
         conversation=conversation,
         user_prompt=payload.content,
@@ -1655,9 +1788,18 @@ def send_message_stream(
         explicit_repo=payload.github_repo,
     )
 
+    db.commit()
+    db.refresh(user_msg)
+    auth_db_ms = (time.perf_counter() - t_setup0) * 1000.0
+
+    t_mem0 = time.perf_counter()
+    skip_memory = (
+        route_plan.use_github_orchestrator
+        or route_plan.intent == UserIntent.CASUAL_CHAT
+    )
     memory_context = (
         None
-        if route_plan.use_github_orchestrator
+        if skip_memory
         else _resolve_memory_context(
             db=db,
             user_id=user.id if user else None,
@@ -1665,9 +1807,7 @@ def send_message_stream(
             query=payload.content,
         )
     )
-
-    db.commit()
-    db.refresh(user_msg)
+    memory_ms = (time.perf_counter() - t_mem0) * 1000.0
 
     history = [{"role": m.role, "content": m.content} for m in conversation.messages]
     selection_ctx = _build_selection_context_block(payload.selected_text)
@@ -1694,15 +1834,20 @@ def send_message_stream(
         github_mode=route_plan.mode == "github",
         github_repo=payload.github_repo,
         route_plan=route_plan,
+        request=request,
+        defer_user_memory_index=True,
+        stage_timings_ms={"auth_db_ms": auth_db_ms, "memory_ms": memory_ms},
     )
 
 
 @router.post("/stream")
 def create_conversation_stream(
     payload: ConversationCreateRequest,
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[UserRecord | None, Depends(get_current_user_optional)],
 ) -> StreamingResponse:
+    t_setup0 = time.perf_counter()
     raw = (payload.initial_message or "").strip()
     conv_title = (
         raw[:60] + ("..." if len(raw) > 60 else "")
@@ -1736,13 +1881,6 @@ def create_conversation_stream(
             user.id if user else None,
         )
 
-        try:
-            ConversationMemoryManager.index_message(
-                db, user_msg, user_id=user.id if user else None
-            )
-        except Exception as mem_err:
-            logger.warning("Failed to index initial user memory: %s", mem_err)
-
         doc_context, _ = _resolve_document_context(
             conversation=conversation,
             user_prompt=payload.initial_message,
@@ -1767,10 +1905,16 @@ def create_conversation_stream(
 
     db.commit()
     db.refresh(conversation)
+    auth_db_ms = (time.perf_counter() - t_setup0) * 1000.0
 
+    t_mem0 = time.perf_counter()
+    skip_memory = (
+        route_plan.use_github_orchestrator
+        or route_plan.intent == UserIntent.CASUAL_CHAT
+    )
     memory_context = (
         None
-        if route_plan.use_github_orchestrator
+        if skip_memory
         else _resolve_memory_context(
             db=db,
             user_id=user.id if user else None,
@@ -1778,6 +1922,7 @@ def create_conversation_stream(
             query=payload.initial_message,
         )
     )
+    memory_ms = (time.perf_counter() - t_mem0) * 1000.0
 
     history = (
         [{"role": "user", "content": payload.initial_message or ""}]
@@ -1804,6 +1949,9 @@ def create_conversation_stream(
         github_mode=route_plan.mode == "github",
         github_repo=payload.github_repo,
         route_plan=route_plan,
+        request=request,
+        defer_user_memory_index=True,
+        stage_timings_ms={"auth_db_ms": auth_db_ms, "memory_ms": memory_ms},
     )
 
 
@@ -1811,9 +1959,11 @@ def create_conversation_stream(
 def regenerate_message_stream(
     conversation_id: str,
     payload: MessageRegenerateRequest,
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[UserRecord | None, Depends(get_current_user_optional)],
 ) -> StreamingResponse:
+    t_setup0 = time.perf_counter()
     query = db.query(ConversationRecord).filter(ConversationRecord.id == conversation_id)
     if user:
         query = query.filter(ConversationRecord.user_id == user.id)
@@ -1877,9 +2027,16 @@ def regenerate_message_stream(
         explicit_repo=payload.github_repo,
     )
     db.commit()
+    auth_db_ms = (time.perf_counter() - t_setup0) * 1000.0
+
+    t_mem0 = time.perf_counter()
+    skip_memory = (
+        route_plan.use_github_orchestrator
+        or route_plan.intent == UserIntent.CASUAL_CHAT
+    )
     memory_context = (
         None
-        if route_plan.use_github_orchestrator
+        if skip_memory
         else _resolve_memory_context(
             db=db,
             user_id=user.id if user else None,
@@ -1887,6 +2044,7 @@ def regenerate_message_stream(
             query=last_user_query,
         )
     )
+    memory_ms = (time.perf_counter() - t_mem0) * 1000.0
 
     return _create_streaming_response(
         conversation_id=conversation.id,
@@ -1901,6 +2059,8 @@ def regenerate_message_stream(
         github_mode=route_plan.mode == "github",
         github_repo=payload.github_repo,
         route_plan=route_plan,
+        request=request,
+        stage_timings_ms={"auth_db_ms": auth_db_ms, "memory_ms": memory_ms},
     )
 
 
@@ -1921,13 +2081,47 @@ def _create_streaming_response(
     github_mode: bool = False,
     github_repo: str | None = None,
     route_plan: ToolRoutePlan | None = None,
+    request: Request | None = None,
+    defer_user_memory_index: bool = False,
+    stage_timings_ms: dict[str, float] | None = None,
 ) -> StreamingResponse:
-    def event_generator():
+    bg_tasks = BackgroundTasks()
+
+    async def event_generator():
         trace_id = f"trace-{uuid.uuid4().hex[:8]}"
-        t0 = time.perf_counter()
+        superseded = _register_active_stream(conversation_id, trace_id)
+        if superseded:
+            logger.info(
+                "[TRACE: %s] Superseding active stream %s for conv=%s",
+                trace_id,
+                superseded,
+                conversation_id,
+            )
+
+        timer = StageTimer()
+        t0 = timer.start
         ttft: float | None = None
         chunks: list[str] = []
         token_count = 0
+        termination_reason = "completed"
+        status_code = 200
+        error_code: str | None = None
+        retries = 0
+        fallback_used = False
+        fallback_model: str | None = None
+        db_persist_ms: float | None = None
+        generation_ms: float | None = None
+        recorded = False
+        client: Any = None
+
+        auth_db_ms = (stage_timings_ms or {}).get("auth_db_ms")
+        memory_ms = (stage_timings_ms or {}).get("memory_ms")
+
+        settings = get_settings()
+        active_provider = (provider or settings.llm_provider or "ollama").lower().strip()
+        effective_model = model or (
+            settings.nvidia_model if active_provider in ("nvidia", "llm") else settings.ollama_model
+        )
 
         resolved_plan = route_plan
         last_prompt = trigger_prompt or (history[-1]["content"] if history else "")
@@ -1975,6 +2169,34 @@ def _create_streaming_response(
                     document_context=document_context,
                 )
 
+        def _record_perf() -> None:
+            nonlocal recorded
+            if recorded:
+                return
+            recorded = True
+            get_performance_monitor().record(
+                RequestPerformanceRecord(
+                    request_id=trace_id,
+                    mode=resolved_plan.mode,
+                    intent=resolved_plan.intent.value,
+                    provider=active_provider,
+                    model=str(effective_model),
+                    status_code=status_code,
+                    termination_reason=termination_reason,
+                    total_ms=timer.elapsed_ms(),
+                    ttft_ms=round(ttft * 1000.0, 2) if ttft is not None else None,
+                    generation_ms=round(generation_ms, 2) if generation_ms is not None else None,
+                    auth_db_ms=round(auth_db_ms, 2) if auth_db_ms is not None else None,
+                    memory_ms=round(memory_ms, 2) if memory_ms is not None else None,
+                    db_persist_ms=round(db_persist_ms, 2) if db_persist_ms is not None else None,
+                    token_chunks=token_count,
+                    retries=retries,
+                    fallback_used=fallback_used,
+                    fallback_model=fallback_model,
+                    error_code=error_code,
+                )
+            )
+
         if initial_conv_metadata:
             init_data = dict(initial_conv_metadata)
             init_data.setdefault("mode", resolved_plan.mode)
@@ -1986,9 +2208,6 @@ def _create_streaming_response(
             if user_message_id:
                 ack_data["user_message_id"] = user_message_id
             yield f"event: ack\ndata: {json.dumps(ack_data)}\n\n"
-
-        settings = get_settings()
-        active_provider = (provider or settings.llm_provider or "ollama").lower().strip()
 
         logger.info(
             "[TRACE: %s] Starting AI stream: conv=%s, provider=%s, model=%s, mode=%s, intent=%s, gh_tools=%s",
@@ -2008,13 +2227,17 @@ def _create_streaming_response(
             client = get_llm_client(
                 provider=active_provider,
                 model=model,
-                timeout=120.0 if resolved_plan.use_github_orchestrator else 60.0,
+                timeout=120.0 if resolved_plan.use_github_orchestrator else settings.llm_timeout_seconds,
             )
 
-            if not client.is_available():
+            # Avoid extra synchronous /models TLS roundtrip on real pooled clients;
+            # preserve is_available() for mocked clients in tests.
+            if isinstance(client, (NemotronClient, OllamaClient)):
+                client.validate_config()
+            elif not client.is_available():
                 raise ConnectionError(f"Service unavailable for provider: {active_provider}")
 
-            effective_model = getattr(client, "model", model)
+            effective_model = getattr(client, "model", model or effective_model)
             system_prompt = _build_system_prompt(
                 diff_context=diff_context,
                 document_context=document_context,
@@ -2024,6 +2247,9 @@ def _create_streaming_response(
                 model=effective_model,
                 user_query=last_prompt,
             )
+            trimmed_history = _trim_chat_history(history, max_turns=8, max_total_chars=16000)
+
+            t_model_start = time.perf_counter()
 
             if resolved_plan.use_github_orchestrator:
                 session_factory = get_session_factory()
@@ -2046,9 +2272,16 @@ def _create_streaming_response(
                     )
                     for evt in gh_orch.run_stream(
                         prompt=last_prompt,
-                        history=history,
+                        history=trimmed_history,
                         explicit_repo=github_repo,
                     ):
+                        if not _is_active_stream(conversation_id, trace_id):
+                            termination_reason = "cancelled"
+                            break
+                        if request is not None and await request.is_disconnected():
+                            termination_reason = "disconnected"
+                            break
+
                         evt_type = evt.get("type")
                         if evt_type == "status":
                             yield (
@@ -2079,37 +2312,156 @@ def _create_streaming_response(
                             chunks.append(chunk)
                             token_count += 1
                             yield f"event: token\ndata: {json.dumps({'chunk': chunk})}\n\n"
+                            await asyncio.sleep(0)
             else:
                 yield f"event: status\ndata: {json.dumps(resolved_plan.initial_status)}\n\n"
-                chat_payload = [{"role": "system", "content": system_prompt}] + history[-8:]
-
-                stream_iter = (
-                    client.stream_chat(chat_payload)
-                    if hasattr(client, "stream_chat")
-                    else iter([client.chat(chat_payload, json_format=False)])
+                chat_payload = [{"role": "system", "content": system_prompt}] + trimmed_history
+                enable_thinking = _should_enable_thinking(
+                    route_plan=resolved_plan,
+                    prompt=last_prompt,
+                    diff_context=diff_context,
+                    document_context=document_context,
                 )
-
                 emitted_generating_status = False
-                for chunk in stream_iter:
-                    if not chunk:
-                        continue
-                    if not emitted_generating_status and resolved_plan.intent in (
-                        UserIntent.GENERAL_CODING,
-                        UserIntent.ANALYZE_PROVIDED_CODE,
-                    ):
-                        emitted_generating_status = True
-                        prep_status = ProgressMessageManager.status_event(
-                            "generating", "Preparing your response..."
-                        )
-                        yield f"event: status\ndata: {json.dumps(prep_status)}\n\n"
-                    if ttft is None:
-                        ttft = time.perf_counter() - t0
-                        logger.info(
-                            "[TRACE: %s] First token rendered at TTFT=%.3fs", trace_id, ttft
-                        )
-                    chunks.append(chunk)
-                    token_count += 1
-                    yield f"event: token\ndata: {json.dumps({'chunk': chunk})}\n\n"
+
+                has_native_async = isinstance(
+                    client, (NemotronClient, OllamaClient)
+                ) and inspect.isasyncgenfunction(getattr(client, "astream_chat", None))
+
+                if has_native_async:
+                    heartbeat_interval = 4.0
+                    overall_deadline = time.perf_counter() + max(
+                        30.0, settings.llm_timeout_seconds + 15.0
+                    )
+                    aiter = client.astream_chat(
+                        chat_payload,
+                        enable_thinking=enable_thinking,
+                        ttft_timeout=settings.llm_ttft_timeout_seconds,
+                        idle_timeout=settings.llm_stream_idle_timeout_seconds,
+                    ).__aiter__()
+                    pending_task: asyncio.Task[str] | None = None
+                    try:
+                        while True:
+                            if not _is_active_stream(conversation_id, trace_id):
+                                termination_reason = "cancelled"
+                                break
+                            if request is not None and await request.is_disconnected():
+                                termination_reason = "disconnected"
+                                break
+                            now = time.perf_counter()
+                            if now > overall_deadline:
+                                raise TimeoutError(
+                                    f"Stream exceeded overall deadline for {effective_model}"
+                                )
+                            if pending_task is None:
+                                pending_task = asyncio.create_task(aiter.__anext__())
+                            wait_slice = min(heartbeat_interval, max(0.1, overall_deadline - now))
+                            done, _ = await asyncio.wait({pending_task}, timeout=wait_slice)
+                            if not done:
+                                yield ": keep-alive\n\n"
+                                continue
+
+                            finished_task = pending_task
+                            pending_task = None
+                            try:
+                                chunk = finished_task.result()
+                            except StopAsyncIteration:
+                                break
+
+                            if not chunk:
+                                continue
+                            if not emitted_generating_status and resolved_plan.intent in (
+                                UserIntent.GENERAL_CODING,
+                                UserIntent.ANALYZE_PROVIDED_CODE,
+                            ):
+                                emitted_generating_status = True
+                                prep_status = ProgressMessageManager.status_event(
+                                    "generating", "Preparing your response..."
+                                )
+                                yield f"event: status\ndata: {json.dumps(prep_status)}\n\n"
+                            if ttft is None:
+                                ttft = time.perf_counter() - t0
+                                logger.info(
+                                    "[TRACE: %s] First token rendered at TTFT=%.3fs",
+                                    trace_id,
+                                    ttft,
+                                )
+                            chunks.append(chunk)
+                            token_count += 1
+                            yield f"event: token\ndata: {json.dumps({'chunk': chunk})}\n\n"
+                    finally:
+                        if pending_task is not None and not pending_task.done():
+                            pending_task.cancel()
+                            try:
+                                await pending_task
+                            except (asyncio.CancelledError, StopAsyncIteration, Exception):
+                                pass
+                        if hasattr(aiter, "aclose"):
+                            try:
+                                await aiter.aclose()
+                            except Exception:
+                                pass
+                else:
+                    stream_iter = (
+                        client.stream_chat(chat_payload)
+                        if hasattr(client, "stream_chat")
+                        else iter([client.chat(chat_payload, json_format=False)])
+                    )
+                    for chunk in stream_iter:
+                        if not _is_active_stream(conversation_id, trace_id):
+                            termination_reason = "cancelled"
+                            break
+                        if request is not None and await request.is_disconnected():
+                            termination_reason = "disconnected"
+                            break
+                        if not chunk:
+                            continue
+                        if not emitted_generating_status and resolved_plan.intent in (
+                            UserIntent.GENERAL_CODING,
+                            UserIntent.ANALYZE_PROVIDED_CODE,
+                        ):
+                            emitted_generating_status = True
+                            prep_status = ProgressMessageManager.status_event(
+                                "generating", "Preparing your response..."
+                            )
+                            yield f"event: status\ndata: {json.dumps(prep_status)}\n\n"
+                        if ttft is None:
+                            ttft = time.perf_counter() - t0
+                            logger.info(
+                                "[TRACE: %s] First token rendered at TTFT=%.3fs", trace_id, ttft
+                            )
+                        chunks.append(chunk)
+                        token_count += 1
+                        yield f"event: token\ndata: {json.dumps({'chunk': chunk})}\n\n"
+                        await asyncio.sleep(0)
+
+            call_meta = getattr(client, "last_call_meta", None)
+            if isinstance(call_meta, dict):
+                retries = int(call_meta.get("retries", 0) or 0)
+                fallback_used = bool(call_meta.get("fallback_used", False))
+                meta_model = call_meta.get("effective_model")
+                if isinstance(meta_model, str) and meta_model.strip():
+                    if fallback_used and meta_model != effective_model:
+                        fallback_model = meta_model
+                    effective_model = meta_model
+
+            generation_ms = (time.perf_counter() - t_model_start) * 1000.0
+
+            if termination_reason == "cancelled":
+                status_code = 499
+                error_code = "STREAM_CANCELLED"
+                _record_perf()
+                yield (
+                    "event: error\n"
+                    f"data: {json.dumps({'error_code': 'STREAM_CANCELLED', 'user_message': 'Superseded by a newer request.', 'retryable': False})}\n\n"
+                )
+                return
+
+            if termination_reason == "disconnected":
+                status_code = 499
+                error_code = "CLIENT_DISCONNECTED"
+                _record_perf()
+                return
 
             full_text = "".join(chunks).strip()
             if not full_text:
@@ -2117,9 +2469,7 @@ def _create_streaming_response(
                     "I received an empty completion from the model. Please retry your request."
                 )
 
-            t_gen = time.perf_counter() - t0
             t_db0 = time.perf_counter()
-
             session_factory = get_session_factory()
             with session_factory() as gen_db:
                 if target_message_id:
@@ -2161,34 +2511,41 @@ def _create_streaming_response(
 
                 gen_db.commit()
 
-                try:
-                    target_asst = gen_db.query(MessageRecord).filter_by(id=saved_msg_id).first()
-                    if target_asst:
-                        ConversationMemoryManager.index_message(
-                            gen_db,
-                            target_asst,
-                            user_id=user_id,
-                            source_mode=resolved_plan.mode,
-                            contains_repo_context=resolved_plan.use_github_orchestrator,
-                        )
-                        ConversationMemoryManager.generate_or_update_summary(
-                            gen_db, conversation_id, user_id=user_id, llm_client=client
-                        )
-                except Exception as mem_err:
-                    logger.warning("Failed to index assistant memory in stream: %s", mem_err)
-
-            t_db = time.perf_counter() - t_db0
+            db_persist_ms = (time.perf_counter() - t_db0) * 1000.0
             t_total = time.perf_counter() - t0
+
+            # Defer embedding indexing & conversation summarization until after SSE done flushes
+            msg_ids_to_index: list[str] = []
+            if defer_user_memory_index and user_message_id:
+                msg_ids_to_index.append(user_message_id)
+            if saved_msg_id:
+                msg_ids_to_index.append(saved_msg_id)
+            if msg_ids_to_index:
+                bg_tasks.add_task(
+                    _background_index_conversation_memory,
+                    conversation_id=conversation_id,
+                    user_id=user_id,
+                    message_ids=msg_ids_to_index,
+                    source_mode=resolved_plan.mode,
+                    contains_repo_context=resolved_plan.use_github_orchestrator,
+                    summarize=True,
+                    llm_client=client,
+                )
+
+            _record_perf()
 
             logger.info(
                 "[TRACE: %s] Stream finalized: TTFT=%.3fs, Gen=%.3fs, "
-                "DB=%.3fs, Total=%.3fs, Tokens=%d",
+                "DB=%.3fs, Total=%.3fs, Tokens=%d, Model=%s, Retries=%d, Fallback=%s",
                 trace_id,
                 (ttft or 0.0),
-                t_gen,
-                t_db,
+                (generation_ms or 0.0) / 1000.0,
+                db_persist_ms / 1000.0,
                 t_total,
                 token_count,
+                effective_model,
+                retries,
+                fallback_used,
             )
 
             done_payload = {
@@ -2202,13 +2559,32 @@ def _create_streaming_response(
                     "ttft_ms": round((ttft or 0.0) * 1000),
                     "total_ms": round(t_total * 1000),
                     "chunks": token_count,
+                    "retries": retries,
+                    "fallback_used": fallback_used,
                 },
             }
             yield f"event: done\ndata: {json.dumps(done_payload)}\n\n"
 
         except Exception as exc:
+            call_meta = getattr(client, "last_call_meta", None) if client is not None else None
+            if isinstance(call_meta, dict):
+                retries = int(call_meta.get("retries", 0) or 0)
+                fallback_used = bool(call_meta.get("fallback_used", False))
+                meta_model = call_meta.get("effective_model")
+                if isinstance(meta_model, str) and meta_model.strip():
+                    if fallback_used and meta_model != effective_model:
+                        fallback_model = meta_model
+                    effective_model = meta_model
+
             norm = normalize_ai_error(exc, active_provider)
-            if chunks:
+            status_code = norm.status_code
+            error_code = norm.error_code
+            termination_reason = (
+                "timeout"
+                if norm.error_code == "TIMEOUT" or isinstance(exc, TimeoutError)
+                else "error"
+            )
+            if chunks and _is_active_stream(conversation_id, trace_id):
                 partial_text = "".join(chunks).strip()
                 try:
                     session_factory = get_session_factory()
@@ -2230,7 +2606,16 @@ def _create_streaming_response(
                 except Exception as save_err:
                     logger.warning("Failed to save partial response: %s", save_err)
 
+            _record_perf()
             yield f"event: error\ndata: {json.dumps(norm.to_dict())}\n\n"
+        finally:
+            _clear_active_stream(conversation_id, trace_id)
+            if not recorded:
+                if termination_reason == "completed" and not chunks:
+                    termination_reason = "disconnected"
+                    status_code = 499
+                    error_code = error_code or "CLIENT_DISCONNECTED"
+                _record_perf()
 
     return StreamingResponse(
         event_generator(),
@@ -2240,6 +2625,7 @@ def _create_streaming_response(
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
         },
+        background=bg_tasks,
     )
 
 
@@ -2358,38 +2744,107 @@ def _generate_assistant_reply(
     explicit_repo: str | None = None,
 ) -> str:
     settings = get_settings()
+    timer = StageTimer()
+    trace_id = f"sync-{uuid.uuid4().hex[:8]}"
     provider = (provider_override or settings.llm_provider or "llm").lower().strip()
+    intent_val = route_plan.intent.value if route_plan is not None else "unknown"
+    mode_val = route_plan.mode if route_plan is not None else "normal"
+    effective_model = model_override or (
+        settings.nvidia_model if provider in ("nvidia", "llm") else settings.ollama_model
+    )
 
     if provider not in ("ollama", "nvidia", "llm"):
         norm = normalize_ai_error(Exception("unsupported ai model"), provider)
+        get_performance_monitor().record(
+            RequestPerformanceRecord(
+                request_id=trace_id,
+                mode=mode_val,
+                intent=intent_val,
+                provider=provider,
+                model=str(effective_model),
+                status_code=status.HTTP_400_BAD_REQUEST,
+                termination_reason="error",
+                total_ms=timer.elapsed_ms(),
+                error_code=norm.error_code,
+            )
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=norm.user_message,
         )
 
     use_gh_orch = bool(route_plan and route_plan.use_github_orchestrator)
+    client: Any = None
 
     try:
         client = get_llm_client(
             provider=provider,
             model=model_override,
-            timeout=120.0 if use_gh_orch else 40.0,
+            timeout=120.0 if use_gh_orch else settings.llm_timeout_seconds,
         )
     except Exception as exc:
         norm = normalize_ai_error(exc, provider)
+        get_performance_monitor().record(
+            RequestPerformanceRecord(
+                request_id=trace_id,
+                mode=mode_val,
+                intent=intent_val,
+                provider=provider,
+                model=str(effective_model),
+                status_code=norm.status_code,
+                termination_reason="error",
+                total_ms=timer.elapsed_ms(),
+                error_code=norm.error_code,
+            )
+        )
         raise HTTPException(
             status_code=norm.status_code,
             detail=norm.user_message,
         )
 
-    if not client.is_available():
+    if isinstance(client, (NemotronClient, OllamaClient)):
+        try:
+            client.validate_config()
+        except Exception as exc:
+            norm = normalize_ai_error(exc, provider)
+            get_performance_monitor().record(
+                RequestPerformanceRecord(
+                    request_id=trace_id,
+                    mode=mode_val,
+                    intent=intent_val,
+                    provider=provider,
+                    model=str(effective_model),
+                    status_code=norm.status_code,
+                    termination_reason="error",
+                    total_ms=timer.elapsed_ms(),
+                    error_code=norm.error_code,
+                )
+            )
+            raise HTTPException(
+                status_code=norm.status_code,
+                detail=norm.user_message,
+            )
+    elif not client.is_available():
         norm = normalize_ai_error(Exception("Service unavailable"), provider)
+        get_performance_monitor().record(
+            RequestPerformanceRecord(
+                request_id=trace_id,
+                mode=mode_val,
+                intent=intent_val,
+                provider=provider,
+                model=str(effective_model),
+                status_code=norm.status_code,
+                termination_reason="error",
+                total_ms=timer.elapsed_ms(),
+                error_code=norm.error_code,
+            )
+        )
         raise HTTPException(
             status_code=norm.status_code,
             detail=norm.user_message,
         )
 
-    effective_model = getattr(client, "model", model_override)
+    effective_model = getattr(client, "model", model_override or effective_model)
     last_user_query = next(
         (m.get("content", "") for m in reversed(messages) if m.get("role") == "user"),
         None,
@@ -2404,8 +2859,43 @@ def _generate_assistant_reply(
         user_query=last_user_query,
         db=db,
     )
+    trimmed_messages = _trim_chat_history(messages, max_turns=8, max_total_chars=16000)
+
+    def _record_sync_perf(
+        *,
+        status_code: int,
+        reason: str,
+        gen_ms: float | None = None,
+        error_code: str | None = None,
+    ) -> None:
+        meta = getattr(client, "last_call_meta", None) if client is not None else None
+        retries = int(meta.get("retries", 0) or 0) if isinstance(meta, dict) else 0
+        fallback_used = bool(meta.get("fallback_used", False)) if isinstance(meta, dict) else False
+        eff = (
+            str(meta.get("effective_model"))
+            if isinstance(meta, dict) and meta.get("effective_model")
+            else str(effective_model)
+        )
+        get_performance_monitor().record(
+            RequestPerformanceRecord(
+                request_id=trace_id,
+                mode=mode_val,
+                intent=intent_val,
+                provider=provider,
+                model=eff,
+                status_code=status_code,
+                termination_reason=reason,
+                total_ms=timer.elapsed_ms(),
+                generation_ms=round(gen_ms, 2) if gen_ms is not None else None,
+                retries=retries,
+                fallback_used=fallback_used,
+                fallback_model=eff if fallback_used and eff != str(effective_model) else None,
+                error_code=error_code,
+            )
+        )
 
     if use_gh_orch and db is not None and route_plan is not None:
+        t_gen0 = time.perf_counter()
         try:
             gh_orch = GitHubChatOrchestrator(
                 db=db,
@@ -2422,33 +2912,73 @@ def _generate_assistant_reply(
                 str(evt.get("chunk") or "")
                 for evt in gh_orch.run_stream(
                     prompt=last_user_query or "",
-                    history=messages,
+                    history=trimmed_messages,
                     explicit_repo=explicit_repo,
                 )
                 if evt.get("type") == "token" and evt.get("chunk")
             ]
             joined = "".join(tokens).strip()
             if joined:
+                _record_sync_perf(
+                    status_code=200,
+                    reason="completed",
+                    gen_ms=(time.perf_counter() - t_gen0) * 1000.0,
+                )
                 return joined
             raise ValueError("Received empty completion from model")
         except HTTPException:
             raise
         except Exception as exc:
             norm = normalize_ai_error(exc, provider)
+            _record_sync_perf(
+                status_code=norm.status_code,
+                reason="timeout" if norm.error_code == "TIMEOUT" else "error",
+                gen_ms=(time.perf_counter() - t_gen0) * 1000.0,
+                error_code=norm.error_code,
+            )
             raise HTTPException(
                 status_code=norm.status_code,
                 detail=norm.user_message,
             )
 
-    chat_payload = [{"role": "system", "content": system_prompt}] + messages[-8:]
+    chat_payload = [{"role": "system", "content": system_prompt}] + trimmed_messages
+    enable_thinking = (
+        _should_enable_thinking(
+            route_plan=route_plan,
+            prompt=last_user_query or "",
+            diff_context=diff_context,
+            document_context=document_context,
+        )
+        if route_plan is not None
+        else bool(diff_context or document_context or "```" in (last_user_query or ""))
+    )
 
+    t_gen0 = time.perf_counter()
     try:
-        reply = client.chat(chat_payload, json_format=False)
+        if isinstance(client, (NemotronClient, OllamaClient)):
+            reply = client.chat(
+                chat_payload,
+                json_format=False,
+                enable_thinking=enable_thinking,
+            )
+        else:
+            reply = client.chat(chat_payload, json_format=False)
         if reply and len(reply.strip()) > 0:
+            _record_sync_perf(
+                status_code=200,
+                reason="completed",
+                gen_ms=(time.perf_counter() - t_gen0) * 1000.0,
+            )
             return reply.strip()
         raise ValueError("Received empty completion from model")
     except Exception as exc:
         norm = normalize_ai_error(exc, provider)
+        _record_sync_perf(
+            status_code=norm.status_code,
+            reason="timeout" if norm.error_code == "TIMEOUT" else "error",
+            gen_ms=(time.perf_counter() - t_gen0) * 1000.0,
+            error_code=norm.error_code,
+        )
         raise HTTPException(
             status_code=norm.status_code,
             detail=norm.user_message,
