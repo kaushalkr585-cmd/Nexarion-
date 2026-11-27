@@ -835,3 +835,184 @@ body {
     padding-left: 0 !important;
   }
 }
+
+/* ── Premium Directional Pure-White Neon Prompt Border ── */
+.nx-prompt-glow-box {
+  position: relative;
+  isolation: isolate;
+  overflow: visible;
+  background-color: #0b0b0d;
+  border-color: rgba(255, 255, 255, 0.11);
+  box-shadow: 0 18px 40px -14px rgba(0, 0, 0, 0.9);
+}
+
+.nx-prompt-glow-box > * {
+  position: relative;
+  z-index: 2;
+}
+
+/* Crisp, restrained pure-white illuminated hairline border + subtle rim glow */
+.nx-prompt-glow-box::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  padding: 1px;
+  border-radius: inherit;
+  background-image:
+    radial-gradient(
+      ellipse 24% 54% at 0% 0%,
+      rgba(255, 255, 255, 0.56) 0%,
+      rgba(255, 255, 255, 0.34) 36%,
+      rgba(255, 255, 255, 0.08) 74%,
+      transparent 100%
+    ),
+    radial-gradient(
+      ellipse 24% 54% at 100% 100%,
+      rgba(255, 255, 255, 0.56) 0%,
+      rgba(255, 255, 255, 0.34) 36%,
+      rgba(255, 255, 255, 0.08) 74%,
+      transparent 100%
+    ),
+    radial-gradient(
+      ellipse 56% 74% at 0% 0%,
+      rgba(255, 255, 255, 0.42) 0%,
+      rgba(255, 255, 255, 0.22) 24%,
+      rgba(255, 255, 255, 0.07) 50%,
+      rgba(255, 255, 255, 0.015) 74%,
+      transparent 100%
+    ),
+    radial-gradient(
+      ellipse 56% 74% at 100% 100%,
+      rgba(255, 255, 255, 0.42) 0%,
+      rgba(255, 255, 255, 0.22) 24%,
+      rgba(255, 255, 255, 0.07) 50%,
+      rgba(255, 255, 255, 0.015) 74%,
+      transparent 100%
+    ),
+    linear-gradient(
+      to right,
+      rgba(255, 255, 255, 0.44) 0%,
+      rgba(255, 255, 255, 0.16) 24%,
+      rgba(255, 255, 255, 0.03) 48%,
+      transparent 60%
+    ),
+    linear-gradient(
+      to left,
+      rgba(255, 255, 255, 0.44) 0%,
+      rgba(255, 255, 255, 0.16) 24%,
+      rgba(255, 255, 255, 0.03) 48%,
+      transparent 60%
+    );
+  background-position:
+    0 0,
+    0 0,
+    0 0,
+    0 0,
+    0 0,
+    0 100%;
+  background-size:
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    100% 1.25px,
+    100% 1.25px;
+  background-repeat: no-repeat;
+  -webkit-mask:
+    linear-gradient(#ffffff 0 0) content-box,
+    linear-gradient(#ffffff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#ffffff 0 0) content-box,
+    linear-gradient(#ffffff 0 0);
+  mask-composite: exclude;
+  filter: drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.32));
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Soft, understated external white bloom strictly behind dark container */
+.nx-prompt-glow-box::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  padding: 3px;
+  border-radius: calc(1rem + 2px);
+  background-image:
+    radial-gradient(
+      ellipse 28% 60% at 0% 0%,
+      rgba(255, 255, 255, 0.34) 0%,
+      rgba(255, 255, 255, 0.16) 40%,
+      rgba(255, 255, 255, 0.03) 76%,
+      transparent 100%
+    ),
+    radial-gradient(
+      ellipse 28% 60% at 100% 100%,
+      rgba(255, 255, 255, 0.34) 0%,
+      rgba(255, 255, 255, 0.16) 40%,
+      rgba(255, 255, 255, 0.03) 76%,
+      transparent 100%
+    ),
+    radial-gradient(
+      ellipse 56% 78% at 0% 0%,
+      rgba(255, 255, 255, 0.24) 0%,
+      rgba(255, 255, 255, 0.09) 34%,
+      rgba(255, 255, 255, 0.02) 68%,
+      transparent 100%
+    ),
+    radial-gradient(
+      ellipse 56% 78% at 100% 100%,
+      rgba(255, 255, 255, 0.24) 0%,
+      rgba(255, 255, 255, 0.09) 34%,
+      rgba(255, 255, 255, 0.02) 68%,
+      transparent 100%
+    ),
+    linear-gradient(
+      to right,
+      rgba(255, 255, 255, 0.2) 0%,
+      rgba(255, 255, 255, 0.07) 26%,
+      transparent 54%
+    ),
+    linear-gradient(
+      to left,
+      rgba(255, 255, 255, 0.2) 0%,
+      rgba(255, 255, 255, 0.07) 26%,
+      transparent 54%
+    );
+  background-position:
+    0 0,
+    0 0,
+    0 0,
+    0 0,
+    0 0,
+    0 100%;
+  background-size:
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    100% 3px,
+    100% 3px;
+  background-repeat: no-repeat;
+  -webkit-mask:
+    linear-gradient(#ffffff 0 0) content-box,
+    linear-gradient(#ffffff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#ffffff 0 0) content-box,
+    linear-gradient(#ffffff 0 0);
+  mask-composite: exclude;
+  filter: blur(6px);
+  pointer-events: none;
+  z-index: -1;
+}
+
+.nx-prompt-glow-box--dragging {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+@media (max-width: 767px) {
+  .nx-prompt-glow-box::after {
+    filter: blur(5px);
+  }
+}

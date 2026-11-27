@@ -1323,10 +1323,10 @@ export const AIConversationWorkspace: React.FC<AIConversationWorkspaceProps> = R
               handleFileSelect(e.dataTransfer.files);
             }
           }}
-          className={`relative flex flex-col bg-neutral-900/90 border rounded-2xl px-2 py-1.5 sm:px-3 sm:py-2 shadow-2xl transition-colors ${
+          className={`nx-prompt-glow-box relative flex flex-col border rounded-2xl px-2 py-1.5 sm:px-3 sm:py-2 shadow-2xl transition-colors ${
             isDraggingOver
-              ? "border-white/60 bg-white/[0.08] ring-2 ring-white/20"
-              : "border-white/15 focus-within:border-white/35"
+              ? "nx-prompt-glow-box--dragging border-white/60 bg-white/[0.08] ring-2 ring-white/20"
+              : "border-white/[0.13]"
           }`}
         >
 

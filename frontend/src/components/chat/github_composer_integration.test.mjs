@@ -61,3 +61,23 @@ test("App.tsx wires GitHub mode, repo context, status streaming, and GitHub OAut
   assert.ok(content.includes("onRepoMeta:"), "App.tsx must handle SSE repo_meta events");
   assert.ok(content.includes("getAuthUrl"), "App.tsx must support GitHub OAuth authorization flow");
 });
+
+test("Prompt composer applies pure-white directional neon border without blocking input or animating", () => {
+  const wsPath = path.join(__dirname, "AIConversationWorkspace.tsx");
+  const wsContent = fs.readFileSync(wsPath, "utf-8");
+  assert.ok(
+    wsContent.includes("nx-prompt-glow-box"),
+    "AIConversationWorkspace.tsx prompt <form> must include nx-prompt-glow-box class"
+  );
+
+  const cssPath = path.resolve(__dirname, "../../index.css");
+  const cssContent = fs.readFileSync(cssPath, "utf-8");
+  const glowSection = cssContent.slice(cssContent.indexOf(".nx-prompt-glow-box"));
+
+  assert.ok(glowSection.includes(".nx-prompt-glow-box::before"), "Must style ::before border layer");
+  assert.ok(glowSection.includes(".nx-prompt-glow-box::after"), "Must style ::after blur bloom layer");
+  assert.ok(glowSection.includes("mask-composite: exclude"), "Must mask gradients to border ring only");
+  assert.ok(glowSection.includes("overflow: visible;"), "Must preserve overflow: visible");
+  assert.ok(glowSection.includes("pointer-events: none;"), "Pseudo-elements must never intercept clicks or typing");
+  assert.ok(!glowSection.includes("animation:"), "Prompt glow must not animate or pulse");
+});
