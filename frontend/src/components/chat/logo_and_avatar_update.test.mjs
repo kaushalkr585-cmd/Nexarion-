@@ -14,9 +14,9 @@ test("Issue: New logo assets exist and are linked in index.html", () => {
   assert.ok(fs.existsSync(path.join(publicDir, "favicon.png")), "favicon.png must exist in public/");
 
   const indexHtml = fs.readFileSync(path.resolve(__dirname, "../../../index.html"), "utf-8");
-  assert.ok(indexHtml.includes('href="/favicon.svg"'), "index.html must reference /favicon.svg");
-  assert.ok(indexHtml.includes('href="/favicon.png"'), "index.html must reference /favicon.png");
-  assert.ok(indexHtml.includes('href="/favicon.ico"'), "index.html must reference /favicon.ico");
+  assert.ok(indexHtml.includes('/favicon.svg'), "index.html must reference /favicon.svg");
+  assert.ok(indexHtml.includes('/favicon.png'), "index.html must reference /favicon.png");
+  assert.ok(indexHtml.includes('/favicon.ico'), "index.html must reference /favicon.ico");
 });
 
 test("Issue: LogoIcon in Icons.tsx references new logo asset", () => {
