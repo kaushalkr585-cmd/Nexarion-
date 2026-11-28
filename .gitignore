@@ -51,3 +51,6 @@ tmp/
 frontend/public/avatars/*
 !frontend/public/avatars/.gitkeep
 .vite/
+
+# ── Local launcher scripts ──────────────────────────────
+start.bat
