@@ -30,6 +30,7 @@ import {
   FileTextIcon,
   GithubIcon,
   HistoryIcon,
+  LogoIcon,
   PlusIcon,
   PrIcon,
   StopSquareIcon,
@@ -1657,17 +1658,27 @@ const AssistantMessageItem = React.memo(
         >
           <div
             data-ask-nexarion-ignore="true"
-            className="hidden md:flex md:w-8 md:h-8 rounded-xl bg-white/[0.08] border border-white/15 items-center justify-center flex-shrink-0 mt-0.5 select-none"
+            className={`hidden md:flex md:w-8 md:h-8 rounded-xl bg-white/[0.08] border items-center justify-center flex-shrink-0 mt-0.5 select-none transition-all duration-300 ${
+              isStreaming
+                ? "border-white/30 bg-white/[0.12] shadow-[0_0_14px_rgba(255,255,255,0.18)]"
+                : "border-white/15"
+            }`}
           >
-            <span className="text-xs font-bold text-white font-mono">NX</span>
+            <LogoIcon size={18} className={isStreaming ? "animate-pulse" : ""} />
           </div>
 
           <div
             data-ask-nexarion-ignore="true"
             className="flex md:hidden items-center gap-2 px-0.5 select-none"
           >
-            <div className="w-6 h-6 rounded-lg bg-white/[0.08] border border-white/15 flex items-center justify-center flex-shrink-0">
-              <span className="text-[10px] font-bold text-white font-mono">NX</span>
+            <div
+              className={`w-6 h-6 rounded-lg bg-white/[0.08] border items-center justify-center flex-shrink-0 transition-all duration-300 ${
+                isStreaming
+                  ? "border-white/30 bg-white/[0.12] shadow-[0_0_10px_rgba(255,255,255,0.18)]"
+                  : "border-white/15"
+              }`}
+            >
+              <LogoIcon size={14} className={isStreaming ? "animate-pulse" : ""} />
             </div>
             <span className="text-xs font-medium text-neutral-400 tracking-wide">Nexarion</span>
           </div>

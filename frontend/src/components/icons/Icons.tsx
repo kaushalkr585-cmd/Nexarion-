@@ -1,20 +1,16 @@
 import React from "react";
 
-export function LogoIcon({ className = "", size = 24 }: { className?: string; size?: number }) {
+export function LogoIcon({ className = "", size }: { className?: string; size?: number }) {
   return (
-    <svg
-      width={size}
-      height={size}
-      style={{ width: size, height: size }}
-      viewBox="0 0 32 32"
-      fill="none"
-      className={`flex-shrink-0 ${className}`}
-    >
-      <rect width="32" height="32" rx="8" fill="#141414" stroke="rgba(255,255,255,0.2)" strokeWidth="1" />
-      <path d="M7 23V9L15 17V23H7Z" fill="#FFFFFF" />
-      <path d="M25 9V23L17 15V9H25Z" fill="#D8D8D8" fillOpacity="0.85" />
-      <circle cx="16" cy="16" r="2.2" fill="#FFFFFF" />
-    </svg>
+    <img
+      src="/logo.png"
+      alt="Nexarion"
+      width={size || 24}
+      height={size || 24}
+      style={size ? { width: size, height: size } : undefined}
+      className={`flex-shrink-0 object-contain select-none ${className}`}
+      draggable={false}
+    />
   );
 }
 

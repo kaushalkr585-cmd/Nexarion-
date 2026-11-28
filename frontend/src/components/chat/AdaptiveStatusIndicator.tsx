@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import type { GenerationState, GenerationType } from "../../types";
+import { LogoIcon } from "../icons/Icons";
 
 interface AdaptiveStatusIndicatorProps {
   state: GenerationState;
@@ -167,8 +168,14 @@ export const AdaptiveStatusIndicator: React.FC<AdaptiveStatusIndicatorProps> = (
   return (
     <div className={`flex items-center gap-3.5 ${className}`}>
       {showAvatar && (
-        <div className="w-7 h-7 rounded-lg bg-white/10 border border-white/20 flex items-center justify-center flex-shrink-0 select-none">
-          <span className="text-[10px] font-bold text-white font-mono">NX</span>
+        <div
+          className={`w-7 h-7 rounded-lg bg-white/10 border flex items-center justify-center flex-shrink-0 select-none transition-all duration-300 ${
+            isAnimated
+              ? "border-white/30 shadow-[0_0_12px_rgba(255,255,255,0.18)]"
+              : "border-white/20"
+          }`}
+        >
+          <LogoIcon size={16} className={isAnimated ? "animate-pulse" : ""} />
         </div>
       )}
 
